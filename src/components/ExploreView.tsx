@@ -17,6 +17,8 @@ import {
   Headphones,
   Check,
   ListMusic,
+  Heart,
+  X,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Track } from '../types/music';
@@ -36,11 +38,14 @@ export const ExploreView: React.FC = () => {
     isSearching,
     searchPlatformFilter,
     setSearchPlatformFilter,
+    searchPlatforms,
     isOfflineModeOnly,
     importYouTubeUrl,
     playlists,
     addTrackToPlaylist,
     addTrackAndSaveToPlaylist,
+    toggleLike,
+    isTrackLiked,
   } = useMusic();
 
   const [quickUrl, setQuickUrl] = useState('');
@@ -117,7 +122,11 @@ export const ExploreView: React.FC = () => {
       return true;
     });
 
-    activeDisplayTracks = isOfflineModeOnly ? merged.filter((t) => t.isOfflineReady) : merged;
+    let filtered = isOfflineModeOnly ? merged.filter((t) => t.isOfflineReady) : merged;
+    if (searchPlatformFilter !== 'all') {
+      filtered = filtered.filter((t) => t.platform === searchPlatformFilter);
+    }
+    activeDisplayTracks = filtered;
   }
 
   const liveRadios = curatedFiltered.filter((t) => t.isStream);
@@ -222,14 +231,27 @@ export const ExploreView: React.FC = () => {
               + Queue
             </button>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              {/* Like / Favorite Button */}
+              <button
+                onClick={() => toggleLike(track)}
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isTrackLiked(track.id)
+                    ? 'text-pink-500 hover:text-pink-400'
+                    : 'text-slate-400 hover:text-pink-400 hover:bg-slate-800'
+                }`}
+                title={isTrackLiked(track.id) ? 'Liked (in Favorites)' : 'Like song'}
+              >
+                <Heart className={`w-3.5 h-3.5 ${isTrackLiked(track.id) ? 'fill-current' : ''}`} />
+              </button>
+
               {/* Add to Playlist button */}
               <button
                 onClick={() => setTrackToAddPlaylist(track)}
                 className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-indigo-600/30 text-slate-300 hover:text-indigo-200 rounded text-[11px] font-medium transition-colors cursor-pointer border border-slate-700/60"
                 title="Add to Custom Playlist"
               >
-                <FolderPlus className="w-3 h-3 text-indigo-400" />
+                <FolderPlus className="w-3.5 h-3.5 text-indigo-400" />
                 <span>+ Playlist</span>
               </button>
 
@@ -254,6 +276,29 @@ export const ExploreView: React.FC = () => {
     );
   };
 
+  const handlePlatformFilterChange = (plat: string) => {
+    setSearchPlatformFilter(plat);
+    if (searchQuery.trim()) {
+      searchPlatforms(searchQuery, plat);
+    } else if (plat === 'spotify') {
+      searchPlatforms('Coldplay Taylor Swift The Weeknd', 'spotify');
+    } else if (plat === 'youtube') {
+      searchPlatforms('Lo-Fi Chill Beats', 'youtube');
+    }
+  };
+
+  const trendingTags = [
+    'Coldplay',
+    'Taylor Swift',
+    'Billie Eilish',
+    'The Weeknd',
+    'Lo-Fi Chill',
+    'Synthwave',
+    'Deep Focus',
+    'Workout Mix',
+    'Hans Zimmer',
+  ];
+
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-8 pb-16">
       {/* Toast Notification */}
@@ -264,59 +309,129 @@ export const ExploreView: React.FC = () => {
         </div>
       )}
 
-      {/* Hero Stream & URL Importer + Playlist Assignment */}
-      <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-purple-950/30 p-6 lg:p-8">
-        <div className="max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-medium text-indigo-300 bg-indigo-950/60 border border-indigo-700/40 px-2.5 py-1 rounded-md">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Explore, Search & Add Links to Playlists</span>
+      {/* --- PROMINENT EXPLORE & SEARCH ENGINE --- */}
+      <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-gradient-to-br from-indigo-950/50 via-slate-900/80 to-purple-950/40 p-6 lg:p-8 shadow-2xl space-y-5">
+        <div className="max-w-3xl space-y-2">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-300 bg-indigo-950/70 border border-indigo-700/50 px-3 py-1 rounded-full shadow-inner">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+            <span>Multi-Platform Music & Audio Search</span>
           </div>
 
-          <h2 className="text-xl lg:text-2xl font-bold tracking-tight text-white">
-            Listen in the background & build your playlists.
+          <h2 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-white">
+            Search YouTube, Spotify & Web Audio
           </h2>
 
           <p className="text-xs lg:text-sm text-slate-300 leading-relaxed">
-            Search YouTube videos, podcasts, and open audio streams in real-time, or paste any link to immediately listen
-            in the background and attach it directly to a custom playlist.
+            Search millions of tracks across Spotify and YouTube for continuous background playback, offline caching, and custom playlists.
           </p>
+        </div>
 
-          {/* Fast Link Form with Optional Playlist Target */}
-          <form onSubmit={handleQuickImport} className="space-y-2 pt-2">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {/* Big Search Input with Platform Tabs */}
+        <div className="space-y-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (searchQuery.trim()) {
+                searchPlatforms(searchQuery, searchPlatformFilter);
+              }
+            }}
+            className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
+          >
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                value={quickUrl}
-                onChange={(e) => setQuickUrl(e.target.value)}
-                placeholder="Paste YouTube or Audio URL (e.g. https://www.youtube.com/watch?v=...)"
-                className="flex-1 bg-slate-950/80 border border-slate-700 text-xs lg:text-sm text-white px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search any song, artist, album on YouTube or Spotify..."
+                className="w-full bg-slate-950/90 border border-slate-700/90 text-sm text-white pl-10 pr-10 py-3 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 placeholder:text-slate-500 shadow-inner"
               />
-
-              {/* Playlist target selector */}
-              {customPlaylists.length > 0 && (
-                <select
-                  value={targetPlaylistId}
-                  onChange={(e) => setTargetPlaylistId(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 text-xs text-slate-200 px-3 py-2.5 rounded-lg focus:outline-none focus:border-indigo-500"
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
                 >
-                  <option value="">Add to: (Library Only)</option>
-                  {customPlaylists.map((pl) => (
-                    <option key={pl.id} value={pl.id}>
-                      Add to: {pl.title}
-                    </option>
-                  ))}
-                </select>
+                  <X className="w-4 h-4" />
+                </button>
               )}
-
-              <button
-                type="submit"
-                disabled={isResolving || !quickUrl.trim()}
-                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs lg:text-sm font-medium rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/20 whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{isResolving ? 'Resolving...' : targetPlaylistId ? 'Add to Playlist' : 'Play & Save'}</span>
-              </button>
             </div>
+
+            <button
+              type="submit"
+              disabled={isSearching}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-98 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 whitespace-nowrap"
+            >
+              {isSearching ? (
+                <>
+                  <Sparkles className="w-4 h-4 animate-spin" />
+                  <span>Searching...</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4" />
+                  <span>Search</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Quick Trending Searches */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-slate-400 text-[11px] font-mono mr-1">Trending:</span>
+            {trendingTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => {
+                  setSearchQuery(tag);
+                  searchPlatforms(tag, searchPlatformFilter);
+                }}
+                className="px-2.5 py-1 bg-slate-800/80 hover:bg-indigo-600/30 border border-slate-700/70 hover:border-indigo-500/50 text-slate-300 hover:text-white rounded-lg text-xs transition-colors cursor-pointer"
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Direct URL Importer Collapsible / Fast Form */}
+        <div className="pt-2 border-t border-slate-800/60">
+          <p className="text-[11px] text-slate-400 mb-1.5 font-mono">
+            Or paste a direct YouTube, Spotify, or Audio link:
+          </p>
+          <form onSubmit={handleQuickImport} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <input
+              type="text"
+              value={quickUrl}
+              onChange={(e) => setQuickUrl(e.target.value)}
+              placeholder="e.g. https://open.spotify.com/track/... or https://youtube.com/watch?v=..."
+              className="flex-1 bg-slate-950/60 border border-slate-800 text-xs text-white px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+            />
+
+            {customPlaylists.length > 0 && (
+              <select
+                value={targetPlaylistId}
+                onChange={(e) => setTargetPlaylistId(e.target.value)}
+                className="bg-slate-900 border border-slate-800 text-xs text-slate-300 px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500"
+              >
+                <option value="">Add to: (Library Only)</option>
+                {customPlaylists.map((pl) => (
+                  <option key={pl.id} value={pl.id}>
+                    Add to: {pl.title}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              type="submit"
+              disabled={isResolving || !quickUrl.trim()}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-medium rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{isResolving ? 'Resolving...' : targetPlaylistId ? 'Add to Playlist' : 'Import Link'}</span>
+            </button>
           </form>
         </div>
       </div>
@@ -324,10 +439,10 @@ export const ExploreView: React.FC = () => {
       {/* Platform Tabs & Live Search Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-3">
         {/* Platform Filter Buttons */}
-        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-900/80 border border-slate-800 rounded-lg">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-900/80 border border-slate-800 rounded-xl">
           <button
-            onClick={() => setSearchPlatformFilter('all')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+            onClick={() => handlePlatformFilterChange('all')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
               searchPlatformFilter === 'all'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
@@ -336,48 +451,48 @@ export const ExploreView: React.FC = () => {
             All Platforms
           </button>
           <button
-            onClick={() => setSearchPlatformFilter('youtube')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+            onClick={() => handlePlatformFilterChange('youtube')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
               searchPlatformFilter === 'youtube'
                 ? 'bg-red-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Youtube className="w-3.5 h-3.5" />
-            <span>YouTube Videos</span>
+            <Youtube className="w-3.5 h-3.5 text-red-400" />
+            <span>YouTube</span>
           </button>
           <button
-            onClick={() => setSearchPlatformFilter('web_audio')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              searchPlatformFilter === 'web_audio'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Royalty-Free Audio</span>
-          </button>
-          <button
-            onClick={() => setSearchPlatformFilter('podcast')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              searchPlatformFilter === 'podcast'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Headphones className="w-3.5 h-3.5" />
-            <span>Podcasts</span>
-          </button>
-          <button
-            onClick={() => setSearchPlatformFilter('spotify')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+            onClick={() => handlePlatformFilterChange('spotify')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
               searchPlatformFilter === 'spotify'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Radio className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>Spotify</span>
+          </button>
+          <button
+            onClick={() => handlePlatformFilterChange('web_audio')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+              searchPlatformFilter === 'web_audio'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5 text-sky-400" />
+            <span>Royalty-Free Audio</span>
+          </button>
+          <button
+            onClick={() => handlePlatformFilterChange('podcast')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+              searchPlatformFilter === 'podcast'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Headphones className="w-3.5 h-3.5 text-purple-400" />
+            <span>Podcasts</span>
           </button>
         </div>
 
@@ -417,7 +532,7 @@ export const ExploreView: React.FC = () => {
             </button>
           </div>
 
-          {isSearching ? (
+          {isSearching && activeDisplayTracks.length === 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-pulse">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div key={i} className="h-64 bg-slate-900/60 rounded-xl border border-slate-800" />
@@ -428,17 +543,83 @@ export const ExploreView: React.FC = () => {
               <Search className="w-8 h-8 text-slate-600 mx-auto mb-2" />
               <p className="text-sm text-slate-300 font-medium">No results found for "{searchQuery}"</p>
               <p className="text-xs text-slate-500 mt-1">
-                Try searching for specific artists, genres (e.g. "lofi", "synthwave"), or paste a direct YouTube URL above.
+                Try searching for specific artists, genres (e.g. "Coldplay", "Taylor Swift", "lofi"), or paste a direct YouTube / Spotify URL above.
               </p>
             </div>
           ) : (
+            <div className="space-y-3">
+              {isSearching && (
+                <div className="flex items-center gap-2 text-xs text-indigo-400 font-mono animate-pulse">
+                  <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                  <span>Updating results across platforms...</span>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {activeDisplayTracks.map((t) => renderTrackCard(t, activeDisplayTracks))}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : searchPlatformFilter !== 'all' ? (
+        /* --- DEDICATED PLATFORM SPOTLIGHT SECTION --- */
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              {searchPlatformFilter === 'spotify' && (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Spotify Catalog & Studio Hits</span>
+                </>
+              )}
+              {searchPlatformFilter === 'youtube' && (
+                <>
+                  <Youtube className="w-4 h-4 text-red-400" />
+                  <span>YouTube Music & Continuous Streams</span>
+                </>
+              )}
+              {searchPlatformFilter === 'web_audio' && (
+                <>
+                  <Globe className="w-4 h-4 text-sky-400" />
+                  <span>Lossless Royalty-Free Audio</span>
+                </>
+              )}
+              {searchPlatformFilter === 'podcast' && (
+                <>
+                  <Headphones className="w-4 h-4 text-purple-400" />
+                  <span>Podcasts & Shows</span>
+                </>
+              )}
+            </h3>
+            <span className="text-xs text-slate-400 font-mono">{curatedFiltered.length} tracks available</span>
+          </div>
+
+          {curatedFiltered.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl bg-slate-900/40 space-y-3">
+              <Sparkles className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
+              <p className="text-sm text-slate-300 font-medium">Ready to search across {searchPlatformFilter}</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {trendingTags.slice(0, 5).map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      setSearchQuery(tag);
+                      searchPlatforms(tag, searchPlatformFilter);
+                    }}
+                    className="px-3 py-1 bg-slate-800 hover:bg-indigo-600/30 text-xs text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    Search "{tag}"
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {activeDisplayTracks.map((t) => renderTrackCard(t, activeDisplayTracks))}
+              {curatedFiltered.map((t) => renderTrackCard(t, curatedFiltered))}
             </div>
           )}
         </section>
       ) : (
-        /* --- CURATED EXPLORE SECTIONS --- */
+        /* --- ALL PLATFORMS CURATED EXPLORE SECTIONS --- */
         <>
           {/* 1. Live Continuous Background Radios */}
           {liveRadios.length > 0 && (

@@ -47,12 +47,18 @@ interface MusicContextType {
   playTrack: (track: Track, newQueue?: Track[]) => Promise<void>;
   togglePlay: () => void;
   seek: (seconds: number) => void;
+  skipForward: (seconds?: number) => void;
+  skipBackward: (seconds?: number) => void;
+  setPlaybackRate: (rate: number) => void;
   setVolume: (val: number) => void;
   toggleMute: () => void;
   setRepeatMode: (mode: 'off' | 'all' | 'one') => void;
   toggleShuffle: () => void;
   playNext: () => void;
   playPrev: () => void;
+  smartPlayPrev: () => void;
+  toggleLike: (track: Track) => Promise<void>;
+  isTrackLiked: (trackId: string) => boolean;
   addToQueue: (track: Track) => void;
   removeFromQueue: (index: number) => void;
   clearQueue: () => void;
@@ -158,6 +164,17 @@ async function resolveMediaLinkClient(url: string): Promise<Track> {
 
     const classification = classifyTrackHeuristic(title, author, ['spotify', 'music']);
 
+    // Attempt client-side YouTube match so background audio can play immediately
+    let matchedYoutubeId = '';
+    try {
+      const matchRes = await fetch(`/api/search?q=${encodeURIComponent(`${title} ${author}`)}&platform=youtube`);
+      if (matchRes.ok) {
+        const matchData = await matchRes.json();
+        const found = matchData.tracks?.find((t: any) => t.youtubeId);
+        if (found?.youtubeId) matchedYoutubeId = found.youtubeId;
+      }
+    } catch {}
+
     return {
       id: `spotify-${spotifyId}`,
       title,
@@ -166,6 +183,7 @@ async function resolveMediaLinkClient(url: string): Promise<Track> {
       sourceUrl: trimmed,
       spotifyId,
       spotifyEmbedUrl: iframeUrl,
+      youtubeId: matchedYoutubeId || undefined,
       duration: 210,
       coverUrl,
       genre: classification.genre,
@@ -459,38 +477,124 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [playPrev, playNext]);
 
   const playTrack = async (track: Track, newQueue?: Track[]) => {
+    let trackToPlay = track;
+
+    // If Spotify track doesn't have youtubeId yet, try fast resolution for continuous background playback
+    if (track.platform === 'spotify' && !track.youtubeId) {
+      try {
+        const query = `${track.title} ${track.artist}`;
+        const matchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&platform=youtube`);
+        if (matchRes.ok) {
+          const matchData = await matchRes.json();
+          const firstYt = matchData.tracks?.find((t: any) => t.youtubeId);
+          if (firstYt?.youtubeId) {
+            trackToPlay = {
+              ...track,
+              youtubeId: firstYt.youtubeId,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Auto match Spotify to YouTube note:', err);
+      }
+    }
+
     let q = newQueue || queue;
-    if (!newQueue && (!queue.some((t) => t.id === track.id) || queue.length === 0)) {
-      q = [track, ...queue.filter((t) => t.id !== track.id)];
+    if (!newQueue && (!queue.some((t) => t.id === trackToPlay.id) || queue.length === 0)) {
+      q = [trackToPlay, ...queue.filter((t) => t.id !== trackToPlay.id)];
       setQueue(q);
       setQueueIndex(0);
     } else if (newQueue) {
       setQueue(newQueue);
-      const idx = newQueue.findIndex((t) => t.id === track.id);
+      const idx = newQueue.findIndex((t) => t.id === trackToPlay.id);
       setQueueIndex(idx !== -1 ? idx : 0);
     } else {
-      const idx = queue.findIndex((t) => t.id === track.id);
+      const idx = queue.findIndex((t) => t.id === trackToPlay.id);
       setQueueIndex(idx);
     }
 
-    await audioManager.playTrack(track);
+    await audioManager.playTrack(trackToPlay);
 
     // Update track play count and last played
     const updated = {
-      ...track,
-      playCount: (track.playCount || 0) + 1,
+      ...trackToPlay,
+      playCount: (trackToPlay.playCount || 0) + 1,
       lastPlayedAt: Date.now(),
     };
     await idbSaveTrack(updated);
-    setTracks((prev) => prev.map((t) => (t.id === track.id ? updated : t)));
+    setTracks((prev) => prev.map((t) => (t.id === trackToPlay.id ? updated : t)));
   };
 
   const togglePlay = () => audioManager.togglePlay();
   const seek = (sec: number) => audioManager.seek(sec);
+  const skipForward = (sec: number = 10) => audioManager.skipForward(sec);
+  const skipBackward = (sec: number = 10) => audioManager.skipBackward(sec);
+  const setPlaybackRate = (rate: number) => audioManager.setPlaybackRate(rate);
   const setVolume = (v: number) => audioManager.setVolume(v);
   const toggleMute = () => audioManager.toggleMute();
   const setRepeatMode = (m: 'off' | 'all' | 'one') => audioManager.setRepeatMode(m);
   const toggleShuffle = () => audioManager.toggleShuffle();
+
+  // Smart Prev: If played for > 3s, restart track like Spotify & Apple Music; else go to prev track
+  const smartPlayPrev = () => {
+    if (playerState.currentTime > 3) {
+      audioManager.seek(0);
+    } else {
+      playPrev();
+    }
+  };
+
+  // 1-Click Like / Favorite Heart Toggle
+  const isTrackLiked = useCallback(
+    (trackId: string) => {
+      const favPl = playlists.find((p) => p.id === 'pl-favorites');
+      return !!favPl?.trackIds.includes(trackId);
+    },
+    [playlists]
+  );
+
+  const toggleLike = useCallback(
+    async (track: Track) => {
+      let favPl = playlists.find((p) => p.id === 'pl-favorites');
+      if (!favPl) {
+        favPl = {
+          id: 'pl-favorites',
+          title: 'Favorites & Starred',
+          description: 'Your starred songs and priority background tracks',
+          trackIds: [],
+          isSmartAuto: true,
+          filterType: 'custom',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+      }
+
+      // Ensure track exists in state and storage
+      if (!tracks.some((t) => t.id === track.id)) {
+        await idbSaveTrack(track);
+        setTracks((prev) => [track, ...prev]);
+      }
+
+      const isLiked = favPl.trackIds.includes(track.id);
+      const newTrackIds = isLiked
+        ? favPl.trackIds.filter((id) => id !== track.id)
+        : [track.id, ...favPl.trackIds];
+
+      const updatedPl: Playlist = {
+        ...favPl,
+        trackIds: newTrackIds,
+        updatedAt: Date.now(),
+      };
+
+      const nextPlaylists = playlists.some((p) => p.id === 'pl-favorites')
+        ? playlists.map((p) => (p.id === 'pl-favorites' ? updatedPl : p))
+        : [updatedPl, ...playlists];
+
+      setPlaylists(nextPlaylists);
+      await idbSavePlaylist(updatedPl);
+    },
+    [playlists, tracks]
+  );
 
   const addToQueue = (track: Track) => {
     setQueue((prev) => [...prev, track]);
@@ -527,6 +631,50 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return newPlaylist;
   };
 
+// Client-side Deezer JSONP search helper (bypasses browser CORS restrictions completely)
+function searchDeezerJSONP(query: string): Promise<any[]> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') return resolve([]);
+    const callbackName = `dz_cb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const script = document.createElement('script');
+    let finished = false;
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        cleanup();
+        resolve([]);
+      }
+    }, 4500);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      try {
+        delete (window as any)[callbackName];
+      } catch {}
+      if (script.parentNode) script.parentNode.removeChild(script);
+    };
+
+    (window as any)[callbackName] = (data: any) => {
+      if (!finished) {
+        finished = true;
+        cleanup();
+        resolve(Array.isArray(data?.data) ? data.data : []);
+      }
+    };
+
+    script.src = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&output=jsonp&callback=${callbackName}`;
+    script.onerror = () => {
+      if (!finished) {
+        finished = true;
+        cleanup();
+        resolve([]);
+      }
+    };
+    document.body.appendChild(script);
+  });
+}
+
   // Live Search Across Platforms
   const searchPlatforms = useCallback(async (query: string, platform?: string) => {
     const q = query.trim();
@@ -538,12 +686,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setIsSearching(true);
     const plat = platform || searchPlatformFilter;
+
+    // 1. Try backend multi-platform search endpoint
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.tracks) && data.tracks.length > 0) {
           setSearchResults(data.tracks);
+          setIsSearching(false);
           return;
         }
       }
@@ -551,47 +702,118 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('Backend search unreachable, running client search fallback:', err);
     }
 
-    // Client-side fallback search (essential on static Vercel hosting!)
+    // 2. Client-side fallback search (essential on static Vercel hosting, offline, or when backend is rate-limited)
     try {
-      const itunesRes = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=15`
-      );
-      if (itunesRes.ok) {
-        const iData = await itunesRes.json();
-        if (Array.isArray(iData.results) && iData.results.length > 0) {
-          const clientTracks: Track[] = iData.results.map((r: any) => {
-            const classified = classifyTrackHeuristic(
-              r.trackName || '',
-              r.artistName || '',
-              [r.primaryGenreName || '']
-            );
-            return {
-              id: `itunes-${r.trackId}`,
-              title: r.trackName,
-              artist: r.artistName,
-              platform: 'web_audio' as const,
-              sourceUrl: r.trackViewUrl,
-              audioUrl: r.previewUrl,
-              duration: Math.round((r.trackTimeMillis || 180000) / 1000),
-              coverUrl:
-                r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl100,
-              genre: classified.genre,
-              mood: classified.mood,
-              tags: [r.primaryGenreName?.toLowerCase() || 'music', 'audio', q.toLowerCase()],
-              energyLevel: classified.energyLevel,
-              isOfflineReady: true,
-              addedAt: Date.now(),
-            };
-          });
-          setSearchResults(clientTracks);
-          return;
-        }
+      const clientPromises: Promise<Track[]>[] = [];
+
+      // If Spotify or All: Query Deezer catalog via JSONP (guaranteed CORS-safe in all browsers)
+      if (plat === 'all' || plat === 'spotify') {
+        clientPromises.push(
+          searchDeezerJSONP(q).then((items) => {
+            if (!Array.isArray(items)) return [];
+            return items.map((item: any) => {
+              const title = item.title_short || item.title || 'Track';
+              const artist = item.artist?.name || 'Artist';
+              const cl = classifyTrackHeuristic(title, artist, ['spotify', 'music', q]);
+              return {
+                id: `sp-${item.id}`,
+                title,
+                artist,
+                platform: 'spotify' as const,
+                sourceUrl: `https://open.spotify.com/search/${encodeURIComponent(title + ' ' + artist)}`,
+                spotifyId: String(item.id),
+                spotifyEmbedUrl: `https://open.spotify.com/embed/track/${item.id}`,
+                audioUrl: item.preview || '',
+                duration: item.duration || 210,
+                coverUrl: item.album?.cover_big || item.album?.cover_medium || item.artist?.picture_big || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
+                genre: cl.genre,
+                mood: cl.mood,
+                tags: ['spotify', 'music', q.toLowerCase()],
+                energyLevel: cl.energyLevel,
+                isStream: false,
+                isOfflineReady: !!item.preview,
+                addedAt: Date.now(),
+              };
+            });
+          })
+        );
+      }
+
+      // If YouTube or All: Query iTunes open catalog with rich audio streams
+      if (plat === 'all' || plat === 'youtube' || plat === 'web_audio') {
+        clientPromises.push(
+          fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=14`)
+            .then((r) => r.json())
+            .then((iData) => {
+              if (!Array.isArray(iData?.results)) return [];
+              return iData.results.map((r: any) => {
+                const cl = classifyTrackHeuristic(r.trackName || '', r.artistName || '', [r.primaryGenreName || '']);
+                return {
+                  id: `itunes-${r.trackId}`,
+                  title: r.trackName,
+                  artist: r.artistName,
+                  platform: (plat === 'youtube' ? 'youtube' : 'web_audio') as 'youtube' | 'web_audio',
+                  sourceUrl: r.trackViewUrl,
+                  audioUrl: r.previewUrl,
+                  duration: Math.round((r.trackTimeMillis || 180000) / 1000),
+                  coverUrl: r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl100,
+                  genre: cl.genre,
+                  mood: cl.mood,
+                  tags: [r.primaryGenreName?.toLowerCase() || 'music', 'audio', q.toLowerCase()],
+                  energyLevel: cl.energyLevel,
+                  isOfflineReady: true,
+                  addedAt: Date.now(),
+                };
+              });
+            })
+            .catch(() => [])
+        );
+      }
+
+      // If Podcast:
+      if (plat === 'all' || plat === 'podcast') {
+        clientPromises.push(
+          fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=podcast&entity=podcast&limit=8`)
+            .then((r) => r.json())
+            .then((pData) => {
+              if (!Array.isArray(pData?.results)) return [];
+              return pData.results.map((r: any) => {
+                const cl = classifyTrackHeuristic(r.collectionName || r.trackName || '', r.artistName || '', ['podcast']);
+                return {
+                  id: `pod-${r.collectionId}`,
+                  title: r.collectionName || r.trackName,
+                  artist: r.artistName,
+                  platform: 'podcast' as const,
+                  sourceUrl: r.collectionViewUrl,
+                  audioUrl: r.feedUrl,
+                  duration: 1800,
+                  coverUrl: r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl600 || r.artworkUrl100,
+                  genre: 'Podcast & Talk',
+                  mood: 'Focus & Study',
+                  tags: ['podcast', 'talk', q.toLowerCase()],
+                  energyLevel: cl.energyLevel,
+                  isOfflineReady: false,
+                  addedAt: Date.now(),
+                };
+              });
+            })
+            .catch(() => [])
+        );
+      }
+
+      const results = await Promise.all(clientPromises);
+      const combined = results.flat();
+      if (combined.length > 0) {
+        setSearchResults(combined);
+        setIsSearching(false);
+        return;
       }
     } catch (cErr) {
       console.warn('Client search fallback error:', cErr);
     }
 
     setSearchResults([]);
+    setIsSearching(false);
   }, [searchPlatformFilter]);
 
   // Debounced search when searchQuery or searchPlatformFilter changes
@@ -898,12 +1120,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         playTrack,
         togglePlay,
         seek,
+        skipForward,
+        skipBackward,
+        setPlaybackRate,
         setVolume,
         toggleMute,
         setRepeatMode,
         toggleShuffle,
         playNext,
         playPrev,
+        smartPlayPrev,
+        toggleLike,
+        isTrackLiked,
         addToQueue,
         removeFromQueue,
         clearQueue,

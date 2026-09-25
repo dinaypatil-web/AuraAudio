@@ -77,7 +77,7 @@ export const Navbar: React.FC = () => {
                 setActiveView('explore');
               }
             }}
-            placeholder="Search YouTube & audio..."
+            placeholder="Search YouTube, Spotify & audio..."
             className="w-full bg-slate-900/90 border border-slate-800 text-xs sm:text-sm text-slate-100 pl-9 pr-7 sm:pr-12 py-2 rounded-lg focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/50 placeholder:text-slate-500 transition-colors"
           />
           {searchQuery && (

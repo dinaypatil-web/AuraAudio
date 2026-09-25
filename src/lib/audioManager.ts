@@ -276,6 +276,31 @@ class AudioManager {
     };
   }
 
+  private isMiniVideoVisible: boolean = false;
+
+  public toggleMiniVideo(force?: boolean): boolean {
+    this.isMiniVideoVisible = force !== undefined ? force : !this.isMiniVideoVisible;
+    const container = document.getElementById(this.ytContainerId);
+    if (container) {
+      if (this.isMiniVideoVisible) {
+        container.style.opacity = '1';
+        container.style.pointerEvents = 'auto';
+        container.style.zIndex = '35';
+        container.style.transform = 'translateY(0)';
+      } else {
+        container.style.opacity = '0.001';
+        container.style.pointerEvents = 'none';
+        container.style.zIndex = '-1';
+        container.style.transform = 'translateY(20px)';
+      }
+    }
+    return this.isMiniVideoVisible;
+  }
+
+  public getIsMiniVideoVisible(): boolean {
+    return this.isMiniVideoVisible;
+  }
+
   public ensureYouTubePlayer(): Promise<any> {
     return new Promise((resolve) => {
       if (this.ytPlayer) {
@@ -289,26 +314,36 @@ class AudioManager {
           if (!container) {
             container = document.createElement('div');
             container.id = this.ytContainerId;
-            // Position within active viewport so browser does NOT freeze or throttle it as an offscreen iframe
+            // Position with standard dimensions so YouTube engine never restricts or flags 1px player
             container.style.position = 'fixed';
-            container.style.bottom = '0px';
-            container.style.right = '0px';
-            container.style.width = '1px';
-            container.style.height = '1px';
-            container.style.opacity = '0.01';
-            container.style.zIndex = '-1';
+            container.style.bottom = '96px';
+            container.style.right = '20px';
+            container.style.width = '280px';
+            container.style.height = '160px';
+            container.style.borderRadius = '12px';
             container.style.overflow = 'hidden';
-            container.style.pointerEvents = 'none';
+            container.style.boxShadow = '0 12px 30px rgba(0,0,0,0.7)';
+            container.style.border = '1px solid rgba(255,255,255,0.1)';
+            container.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+            if (this.isMiniVideoVisible) {
+              container.style.opacity = '1';
+              container.style.pointerEvents = 'auto';
+              container.style.zIndex = '35';
+            } else {
+              container.style.opacity = '0.001';
+              container.style.pointerEvents = 'none';
+              container.style.zIndex = '-1';
+            }
             document.body.appendChild(container);
           }
 
           this.ytPlayer = new window.YT.Player(this.ytContainerId, {
-            height: '180',
-            width: '240',
+            height: '160',
+            width: '280',
             playerVars: {
               autoplay: 1,
-              controls: 0,
-              disablekb: 1,
+              controls: 1,
+              disablekb: 0,
               fs: 0,
               modestbranding: 1,
               playsinline: 1,
@@ -422,8 +457,26 @@ class AudioManager {
       playbackUrl = objectUrl;
     }
 
-    // Check if YouTube track or Spotify track with matched audio
-    if ((track.platform === 'youtube' || track.platform === 'spotify') && track.youtubeId && !offlineBlob && !playbackUrl) {
+    // If track is Spotify or YouTube without youtubeId and without offline blob, resolve full audio match dynamically
+    if ((track.platform === 'spotify' || track.platform === 'youtube') && !track.youtubeId && !offlineBlob) {
+      try {
+        const res = await fetch(`/api/match-audio?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
+        if (res.ok) {
+          const matchData = await res.json();
+          if (matchData.youtubeId) {
+            track.youtubeId = matchData.youtubeId;
+            if (!track.duration || track.duration < 60) {
+              track.duration = matchData.duration || 210;
+            }
+          }
+        }
+      } catch (matchErr) {
+        console.warn('Dynamic audio match failed:', matchErr);
+      }
+    }
+
+    // Check if YouTube track or Spotify track with matched audio for full continuous background streaming
+    if ((track.platform === 'youtube' || track.platform === 'spotify') && track.youtubeId && !offlineBlob) {
       this.activeMode = 'youtube';
       if (this.audioElement) {
         this.audioElement.pause();
@@ -435,7 +488,7 @@ class AudioManager {
       this.ytPlayer.playVideo();
       this.state.duration = track.duration || 240;
     } else {
-      // Native audio playback (for streams, uploaded MP3s, or cached offline tracks)
+      // Native audio playback (for streams, uploaded MP3s, audio previews, or cached offline tracks)
       this.activeMode = 'audio';
       if (this.ytPlayer && this.ytPlayer.pauseVideo) {
         try {
@@ -451,13 +504,30 @@ class AudioManager {
       this.initWebAudioNodes();
 
       if (this.audioElement) {
-        this.audioElement.src = playbackUrl || track.sourceUrl;
-        this.audioElement.volume = this.state.isMuted ? 0 : this.state.volume;
-        this.audioElement.playbackRate = this.state.playbackRate;
-        try {
-          await this.audioElement.play();
-        } catch (err) {
-          console.warn('Audio play request failed or was interrupted:', err);
+        const audioSrc = playbackUrl || (track.audioUrl && track.audioUrl.startsWith('http') ? track.audioUrl : '');
+        const isHtmlPage = audioSrc.includes('open.spotify.com') || audioSrc.includes('youtube.com');
+
+        if (audioSrc && !isHtmlPage) {
+          this.audioElement.src = audioSrc;
+          this.audioElement.volume = this.state.isMuted ? 0 : this.state.volume;
+          this.audioElement.playbackRate = this.state.playbackRate;
+          try {
+            await this.audioElement.play();
+          } catch (err) {
+            console.warn('Audio play request failed, trying YouTube fallback:', err);
+            if (track.youtubeId) {
+              this.activeMode = 'youtube';
+              await this.ensureYouTubePlayer();
+              this.ytPlayer.loadVideoById(track.youtubeId);
+              this.ytPlayer.playVideo();
+            }
+          }
+        } else if (track.youtubeId) {
+          // Fallback to YouTube engine if audioUrl is not a direct stream
+          this.activeMode = 'youtube';
+          await this.ensureYouTubePlayer();
+          this.ytPlayer.loadVideoById(track.youtubeId);
+          this.ytPlayer.playVideo();
         }
       }
     }
@@ -513,6 +583,30 @@ class AudioManager {
       } catch {}
     } else if (this.audioElement) {
       this.audioElement.currentTime = seconds;
+    }
+    this.notify();
+  }
+
+  public skipForward(seconds: number = 10): void {
+    const target = Math.min(this.state.duration || Infinity, this.state.currentTime + seconds);
+    this.seek(target);
+  }
+
+  public skipBackward(seconds: number = 10): void {
+    const target = Math.max(0, this.state.currentTime - seconds);
+    this.seek(target);
+  }
+
+  public setPlaybackRate(rate: number): void {
+    const validRate = Math.max(0.25, Math.min(3.0, rate));
+    this.state.playbackRate = validRate;
+    if (this.audioElement) {
+      this.audioElement.playbackRate = validRate;
+    }
+    if (this.ytPlayer && typeof this.ytPlayer.setPlaybackRate === 'function') {
+      try {
+        this.ytPlayer.setPlaybackRate(validRate);
+      } catch {}
     }
     this.notify();
   }

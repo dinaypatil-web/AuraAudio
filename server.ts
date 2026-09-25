@@ -203,6 +203,79 @@ const CURATED_EXPLORE_TRACKS = [
     tags: ['techno', 'coding', 'minimal', 'loop', 'focus'],
     energyLevel: 6,
     isOfflineReady: true
+  },
+  // Curated Spotify Studio Tracks (with matched YouTube IDs for continuous mobile background playback)
+  {
+    id: 'sp-3157972',
+    title: 'Viva La Vida',
+    artist: 'Coldplay',
+    platform: 'spotify',
+    sourceUrl: 'https://open.spotify.com/track/1da4vi4LxJ71EIE6eaI9uE',
+    spotifyId: '1da4vi4LxJ71EIE6eaI9uE',
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/track/1da4vi4LxJ71EIE6eaI9uE',
+    youtubeId: 'dvgZkm1xWPE',
+    audioUrl: 'https://cdnt-preview.dzcdn.net/api/1/1/e/2/5/0/e25fade11767fd539ad651da72103237.mp3',
+    duration: 242,
+    coverUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&auto=format&fit=crop&q=80',
+    genre: 'Rock & Indie',
+    mood: 'Euphoric & Uplifting',
+    tags: ['spotify', 'coldplay', 'viva la vida', 'rock', 'anthem'],
+    energyLevel: 8,
+    isOfflineReady: true
+  },
+  {
+    id: 'sp-cruel-summer',
+    title: 'Cruel Summer',
+    artist: 'Taylor Swift',
+    platform: 'spotify',
+    sourceUrl: 'https://open.spotify.com/track/1BxfuPKGuaTgP7aM0Bbdwr',
+    spotifyId: '1BxfuPKGuaTgP7aM0Bbdwr',
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/track/1BxfuPKGuaTgP7aM0Bbdwr',
+    youtubeId: 'ic8j13piAhQ',
+    audioUrl: '',
+    duration: 178,
+    coverUrl: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&auto=format&fit=crop&q=80',
+    genre: 'Pop',
+    mood: 'Euphoric & Uplifting',
+    tags: ['spotify', 'taylor swift', 'pop', 'summer', 'hit'],
+    energyLevel: 8,
+    isOfflineReady: false
+  },
+  {
+    id: 'sp-blinding-lights',
+    title: 'Blinding Lights',
+    artist: 'The Weeknd',
+    platform: 'spotify',
+    sourceUrl: 'https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b',
+    spotifyId: '0VjIjW4GlUZAMYd2vXMi3b',
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/track/0VjIjW4GlUZAMYd2vXMi3b',
+    youtubeId: '4NRXx6U8ABQ',
+    audioUrl: '',
+    duration: 200,
+    coverUrl: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=600&auto=format&fit=crop&q=80',
+    genre: 'Synthwave',
+    mood: 'Workout & Energy',
+    tags: ['spotify', 'the weeknd', 'synthwave', '80s', 'energy'],
+    energyLevel: 9,
+    isOfflineReady: false
+  },
+  {
+    id: 'sp-birds-feather',
+    title: 'Birds of a Feather',
+    artist: 'Billie Eilish',
+    platform: 'spotify',
+    sourceUrl: 'https://open.spotify.com/track/6dOtVTDmmpvnLNa9XDOxWX',
+    spotifyId: '6dOtVTDmmpvnLNa9XDOxWX',
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/track/6dOtVTDmmpvnLNa9XDOxWX',
+    youtubeId: 'd5gf9dXbPi0',
+    audioUrl: '',
+    duration: 196,
+    coverUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=600&auto=format&fit=crop&q=80',
+    genre: 'Pop',
+    mood: 'Chill & Relax',
+    tags: ['spotify', 'billie eilish', 'alt pop', 'chill', 'hit'],
+    energyLevel: 6,
+    isOfflineReady: false
   }
 ];
 
@@ -254,32 +327,49 @@ function serverClassifyTrack(title: string, artist: string, extraTags: string[] 
   return { genre, mood, energyLevel };
 }
 
-// 1. YouTube Live Search via search scraping
+// Search Cache (10 minutes TTL)
+const searchCache = new Map<string, { data: any[]; timestamp: number }>();
+
+// 1. YouTube Live Search via fast youtubei API with fallback to scrape & cache
 async function searchYouTubeLive(query: string, maxResults: number = 15): Promise<any[]> {
+  const cacheKey = `yt:${query.toLowerCase()}:${maxResults}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+    return cached.data;
+  }
+
+  const tracks: any[] = [];
+  const seenIds = new Set<string>();
+
+  // Strategy A: YouTube Internal youtubei search API (ultra-fast, structured JSON, no scraping breaks)
   try {
-    const res = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`, {
+    const res = await fetch('https://www.youtube.com/youtubei/v1/search', {
+      method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: '2.20240301.01.00',
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+        query,
+      }),
+      signal: AbortSignal.timeout(4500),
     });
 
-    if (!res.ok) return [];
-    const html = await res.text();
-    const match = html.match(/var ytInitialData = ({.*?});<\/script>/s) || html.match(/ytInitialData\s*=\s*({.+?});/s);
-    if (!match) return [];
+    if (res.ok) {
+      const data = await res.json();
+      const sections = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
 
-    const data = JSON.parse(match[1]);
-    const tracks: any[] = [];
-    const seenIds = new Set<string>();
-
-    const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
-    if (Array.isArray(contents)) {
-      for (const section of contents) {
-        const itemSection = section?.itemSectionRenderer?.contents;
-        if (!Array.isArray(itemSection)) continue;
-
-        for (const item of itemSection) {
+      for (const section of sections) {
+        const items = section?.itemSectionRenderer?.contents || [];
+        for (const item of items) {
           const v = item?.videoRenderer;
           if (!v || !v.videoId || seenIds.has(v.videoId)) continue;
           seenIds.add(v.videoId);
@@ -287,8 +377,8 @@ async function searchYouTubeLive(query: string, maxResults: number = 15): Promis
           const videoId = v.videoId;
           const title = v.title?.runs?.[0]?.text || v.title?.simpleText || 'YouTube Video';
           const artist = v.ownerText?.runs?.[0]?.text || v.shortBylineText?.runs?.[0]?.text || 'YouTube Creator';
-          const thumbnails = v.thumbnail?.thumbnails || [];
-          const coverUrl = thumbnails.length > 0 ? thumbnails[thumbnails.length - 1].url : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+          const thumbs = v.thumbnail?.thumbnails || [];
+          const coverUrl = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
           const lengthText = v.lengthText?.simpleText || '';
 
           let duration = 240;
@@ -306,7 +396,7 @@ async function searchYouTubeLive(query: string, maxResults: number = 15): Promis
             b.metadataBadgeRenderer?.label?.includes('LIVE')
           );
 
-          const classification = serverClassifyTrack(title, artist, [query]);
+          const classification = serverClassifyTrack(title, artist, [query, 'youtube']);
 
           tracks.push({
             id: `yt-${videoId}`,
@@ -322,6 +412,7 @@ async function searchYouTubeLive(query: string, maxResults: number = 15): Promis
             tags: ['youtube', 'search', query.toLowerCase()],
             energyLevel: classification.energyLevel,
             isStream,
+            isOfflineReady: false,
             addedAt: Date.now(),
           });
 
@@ -330,15 +421,208 @@ async function searchYouTubeLive(query: string, maxResults: number = 15): Promis
         if (tracks.length >= maxResults) break;
       }
     }
-
-    return tracks;
-  } catch (err) {
-    console.warn('YouTube live search error:', err);
-    return [];
+  } catch (ytErr) {
+    console.warn('youtubei API attempt error:', ytErr);
   }
+
+  // Strategy B: YouTube HTML search scrape fallback if Strategy A yielded zero
+  if (tracks.length === 0) {
+    try {
+      const res = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+        },
+        signal: AbortSignal.timeout(4500),
+      });
+
+      if (res.ok) {
+        const html = await res.text();
+        let rawJson = '';
+
+        const match = html.match(/var ytInitialData = ({.*?});<\/script>/s) || html.match(/ytInitialData\s*=\s*({.+?});/s);
+        if (match) {
+          rawJson = match[1];
+        } else {
+          const idx = html.indexOf('ytInitialData = ');
+          if (idx !== -1) {
+            const start = html.indexOf('{', idx);
+            const end = html.indexOf(';</script>', start);
+            if (start !== -1 && end !== -1) {
+              rawJson = html.substring(start, end);
+            }
+          }
+        }
+
+        if (rawJson) {
+          const data = JSON.parse(rawJson);
+          const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+          if (Array.isArray(contents)) {
+            for (const section of contents) {
+              const itemSection = section?.itemSectionRenderer?.contents;
+              if (!Array.isArray(itemSection)) continue;
+
+              for (const item of itemSection) {
+                const v = item?.videoRenderer;
+                if (!v || !v.videoId || seenIds.has(v.videoId)) continue;
+                seenIds.add(v.videoId);
+
+                const videoId = v.videoId;
+                const title = v.title?.runs?.[0]?.text || v.title?.simpleText || 'YouTube Video';
+                const artist = v.ownerText?.runs?.[0]?.text || v.shortBylineText?.runs?.[0]?.text || 'YouTube Creator';
+                const thumbnails = v.thumbnail?.thumbnails || [];
+                const coverUrl = thumbnails.length > 0 ? thumbnails[thumbnails.length - 1].url : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                const lengthText = v.lengthText?.simpleText || '';
+
+                let duration = 240;
+                if (lengthText) {
+                  const parts = lengthText.split(':').map(Number);
+                  if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                    duration = parts[0] * 60 + parts[1];
+                  } else if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+                    duration = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                  }
+                }
+
+                const isStream = Array.isArray(v.badges) && v.badges.some((b: any) =>
+                  b.metadataBadgeRenderer?.style?.includes('LIVE') ||
+                  b.metadataBadgeRenderer?.label?.includes('LIVE')
+                );
+
+                const classification = serverClassifyTrack(title, artist, [query]);
+
+                tracks.push({
+                  id: `yt-${videoId}`,
+                  title,
+                  artist,
+                  platform: 'youtube',
+                  sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
+                  youtubeId: videoId,
+                  duration,
+                  coverUrl,
+                  genre: classification.genre,
+                  mood: classification.mood,
+                  tags: ['youtube', 'search', query.toLowerCase()],
+                  energyLevel: classification.energyLevel,
+                  isStream,
+                  isOfflineReady: false,
+                  addedAt: Date.now(),
+                });
+
+                if (tracks.length >= maxResults) break;
+              }
+              if (tracks.length >= maxResults) break;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('YouTube desktop scrape note:', err);
+    }
+  }
+
+  if (tracks.length > 0) {
+    searchCache.set(cacheKey, { data: tracks, timestamp: Date.now() });
+  }
+  return tracks;
 }
 
-// 2. Open Audio Search (iTunes audio streams & podcasts)
+// 2. Spotify Studio Track Search via open high-fidelity catalog with iTunes fallback
+async function searchSpotifyLive(query: string, maxResults: number = 15): Promise<any[]> {
+  const cacheKey = `sp:${query.toLowerCase()}:${maxResults}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+    return cached.data;
+  }
+
+  let tracks: any[] = [];
+
+  // Strategy A: Deezer open catalog
+  try {
+    const res = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=${maxResults}`, {
+      signal: AbortSignal.timeout(3500),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.data) && data.data.length > 0) {
+        tracks = data.data.map((item: any) => {
+          const title = item.title_short || item.title || 'Track';
+          const artist = item.artist?.name || 'Artist';
+          const classification = serverClassifyTrack(title, artist, ['spotify', 'music', query]);
+
+          return {
+            id: `sp-${item.id}`,
+            title,
+            artist,
+            platform: 'spotify',
+            sourceUrl: `https://open.spotify.com/search/${encodeURIComponent(title + ' ' + artist)}`,
+            spotifyId: String(item.id),
+            spotifyEmbedUrl: `https://open.spotify.com/embed/track/${item.id}`,
+            audioUrl: item.preview || '',
+            duration: item.duration || 210,
+            coverUrl: item.album?.cover_big || item.album?.cover_medium || item.artist?.picture_big || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
+            genre: classification.genre,
+            mood: classification.mood,
+            tags: ['spotify', 'music', query.toLowerCase()],
+            energyLevel: classification.energyLevel,
+            isStream: false,
+            isOfflineReady: !!item.preview,
+            addedAt: Date.now(),
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Spotify catalog search note:', err);
+  }
+
+  // Strategy B: iTunes Fallback for Spotify platform if Deezer fails or yields zero
+  if (tracks.length === 0) {
+    try {
+      const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=${maxResults}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.results)) {
+          tracks = data.results.map((r: any) => {
+            const title = r.trackName || 'Song';
+            const artist = r.artistName || 'Artist';
+            const classification = serverClassifyTrack(title, artist, [r.primaryGenreName || '']);
+
+            return {
+              id: `sp-itunes-${r.trackId}`,
+              title,
+              artist,
+              platform: 'spotify',
+              sourceUrl: `https://open.spotify.com/search/${encodeURIComponent(title + ' ' + artist)}`,
+              spotifyId: String(r.trackId),
+              spotifyEmbedUrl: `https://open.spotify.com/embed/track/${r.trackId}`,
+              audioUrl: r.previewUrl || '',
+              duration: Math.round((r.trackTimeMillis || 180000) / 1000),
+              coverUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb') || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
+              genre: classification.genre,
+              mood: classification.mood,
+              tags: ['spotify', 'music', query.toLowerCase()],
+              energyLevel: classification.energyLevel,
+              isStream: false,
+              isOfflineReady: !!r.previewUrl,
+              addedAt: Date.now(),
+            };
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Spotify iTunes fallback note:', e);
+    }
+  }
+
+  if (tracks.length > 0) {
+    searchCache.set(cacheKey, { data: tracks, timestamp: Date.now() });
+  }
+  return tracks;
+}
+
+// 3. Open Audio Search (iTunes audio streams & podcasts)
 async function searchITunesLive(query: string, mediaType: 'music' | 'podcast' = 'music', maxResults: number = 10): Promise<any[]> {
   try {
     const entity = mediaType === 'podcast' ? 'podcast' : 'song';
@@ -377,7 +661,7 @@ async function searchITunesLive(query: string, mediaType: 'music' | 'podcast' = 
   }
 }
 
-// 3. Jamendo Creative Commons direct audio search
+// 4. Jamendo Creative Commons direct audio search
 async function searchJamendoLive(query: string, maxResults: number = 8): Promise<any[]> {
   try {
     const res = await fetch(`https://api.jamendo.com/v3.0/tracks/?client_id=56d30c95&format=json&limit=${maxResults}&search=${encodeURIComponent(query)}&include=musicinfo`);
@@ -428,9 +712,14 @@ app.get('/api/search', async (req: Request, res: Response) => {
     // Parallel multi-platform search promises
     const promises: Promise<any[]>[] = [];
 
+    // Spotify search
+    if (platform === 'all' || platform === 'spotify') {
+      promises.push(searchSpotifyLive(q, platform === 'spotify' ? 18 : 10));
+    }
+
     // YouTube search
     if (platform === 'all' || platform === 'youtube') {
-      promises.push(searchYouTubeLive(q, 15));
+      promises.push(searchYouTubeLive(q, platform === 'youtube' ? 18 : 10));
     }
 
     // Web Audio / Music search
@@ -486,6 +775,50 @@ app.get('/api/search', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Search endpoint error:', err);
     res.status(500).json({ error: err.message || 'Search failed' });
+  }
+});
+
+// Real-Time Audio Matching Endpoint for Spotify / Web Tracks
+app.get('/api/match-audio', async (req: Request, res: Response) => {
+  try {
+    const title = ((req.query.title || '') as string).trim();
+    const artist = ((req.query.artist || '') as string).trim();
+
+    if (!title) {
+      return res.status(400).json({ error: 'Title parameter is required' });
+    }
+
+    const query = `${title} ${artist} audio`.trim();
+    const matches = await searchYouTubeLive(query, 3);
+
+    if (matches.length > 0 && matches[0].youtubeId) {
+      return res.json({
+        success: true,
+        youtubeId: matches[0].youtubeId,
+        title: matches[0].title,
+        artist: matches[0].artist,
+        duration: matches[0].duration || 210,
+        coverUrl: matches[0].coverUrl,
+      });
+    }
+
+    // Try secondary query with just title and artist
+    const fallbackMatches = await searchYouTubeLive(`${title} ${artist}`, 3);
+    if (fallbackMatches.length > 0 && fallbackMatches[0].youtubeId) {
+      return res.json({
+        success: true,
+        youtubeId: fallbackMatches[0].youtubeId,
+        title: fallbackMatches[0].title,
+        artist: fallbackMatches[0].artist,
+        duration: fallbackMatches[0].duration || 210,
+        coverUrl: fallbackMatches[0].coverUrl,
+      });
+    }
+
+    res.status(404).json({ error: 'No YouTube audio match found' });
+  } catch (err: any) {
+    console.error('Audio match endpoint error:', err);
+    res.status(500).json({ error: err.message || 'Audio match failed' });
   }
 });
 
