@@ -560,16 +560,38 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
       return res.json({ success: true, track });
     }
 
-    // Extract YouTube ID
+    // Extract YouTube ID with robust mobile & desktop URL parser
     let youtubeId = '';
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = trimmedUrl.match(regExp);
-
-    if (match && match[2].length === 11) {
-      youtubeId = match[2];
-    } else if (trimmedUrl.length === 11 && !trimmedUrl.includes('/') && !trimmedUrl.includes('.')) {
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmedUrl)) {
       youtubeId = trimmedUrl;
     } else {
+      try {
+        const parsed = new URL(trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`);
+        if (parsed.searchParams.has('v')) {
+          const v = parsed.searchParams.get('v');
+          if (v && v.length === 11) youtubeId = v;
+        }
+        if (!youtubeId) {
+          const pathParts = parsed.pathname.split('/').filter(Boolean);
+          const last = pathParts[pathParts.length - 1];
+          if (last && last.length === 11) {
+            youtubeId = last;
+          } else if (pathParts[0] === 'shorts' && pathParts[1] && pathParts[1].length === 11) {
+            youtubeId = pathParts[1];
+          }
+        }
+      } catch {}
+    }
+
+    if (!youtubeId) {
+      const regExp = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/;
+      const match = trimmedUrl.match(regExp);
+      if (match && match[1]) {
+        youtubeId = match[1];
+      }
+    }
+
+    if (!youtubeId || youtubeId.length !== 11) {
       return res.status(400).json({ error: 'Could not parse a valid YouTube Video ID or Audio URL' });
     }
 

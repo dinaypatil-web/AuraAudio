@@ -91,6 +91,8 @@ interface MusicContextType {
   setIsSmartVibeModalOpen: (val: boolean) => void;
   trackToAddPlaylist: Track | null;
   setTrackToAddPlaylist: (track: Track | null) => void;
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: (val: boolean) => void;
 }
 
 const MusicContext = createContext<MusicContextType | null>(null);
@@ -123,6 +125,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isSmartVibeModalOpen, setIsSmartVibeModalOpen] = useState(false);
   const [trackToAddPlaylist, setTrackToAddPlaylist] = useState<Track | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Initial load from IndexedDB + Server Catalog
   useEffect(() => {
@@ -720,6 +723,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsSmartVibeModalOpen,
         trackToAddPlaylist,
         setTrackToAddPlaylist,
+        isMobileMenuOpen,
+        setIsMobileMenuOpen,
       }}
     >
       {children}

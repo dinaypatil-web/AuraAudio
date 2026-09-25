@@ -50,12 +50,17 @@ export const UrlImportModal: React.FC = () => {
         await addTrackToPlaylist(finalPlaylistId, track.id);
       }
 
-      await playTrack(track);
       setUrl('');
       setTargetPlaylistForImport(null);
       setIsUrlModalOpen(false);
+
+      try {
+        await playTrack(track);
+      } catch (playErr) {
+        console.warn('Background playback note:', playErr);
+      }
     } catch (err: any) {
-      setError(err.message || 'Could not import video. Check URL and try again.');
+      setError(err.message || 'Could not import video. Please check URL.');
     } finally {
       setIsLoading(false);
     }

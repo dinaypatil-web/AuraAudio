@@ -13,6 +13,7 @@ import { SleepTimerModal } from './components/SleepTimerModal';
 import { QueueDrawer } from './components/QueueDrawer';
 import { SmartVibeModal } from './components/SmartVibeModal';
 import { AddToPlaylistModal } from './components/AddToPlaylistModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
 
 const AppContent: React.FC = () => {
   const { activeView } = useMusic();
@@ -35,6 +36,9 @@ const AppContent: React.FC = () => {
 
         {/* Unified Bottom Player */}
         <PlayerBar />
+
+        {/* Mobile Navigation Bar */}
+        <MobileBottomNav />
       </div>
 
       {/* Modals & Overlays */}

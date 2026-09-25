@@ -19,6 +19,7 @@ import {
   Sun,
   Activity,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { GenreType, MoodType } from '../types/music';
@@ -61,13 +62,14 @@ export const Sidebar: React.FC = () => {
     tracks,
     autoOrganizeLibrary,
     isOrganizing,
+    isMobileMenuOpen,
+    setIsMobileMenuOpen,
   } = useMusic();
 
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
 
   const offlineCount = tracks.filter((t) => t.isOfflineReady).length;
-  const userPlaylists = playlists.filter((p) => !p.isSmartAuto);
 
   const handleCreatePlaylist = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +79,7 @@ export const Sidebar: React.FC = () => {
     setIsCreatingPlaylist(false);
     setSelectedPlaylistId(pl.id);
     setActiveView('playlist');
+    setIsMobileMenuOpen(false);
   };
 
   const selectNav = (view: string) => {
@@ -84,6 +87,7 @@ export const Sidebar: React.FC = () => {
     setSelectedPlaylistId(null);
     setSelectedGenreFilter(null);
     setSelectedMoodFilter(null);
+    setIsMobileMenuOpen(false);
   };
 
   const selectMood = (mood: MoodType) => {
@@ -91,6 +95,7 @@ export const Sidebar: React.FC = () => {
     setSelectedGenreFilter(null);
     setSelectedPlaylistId(null);
     setActiveView('library');
+    setIsMobileMenuOpen(false);
   };
 
   const selectGenre = (genre: GenreType) => {
@@ -98,6 +103,7 @@ export const Sidebar: React.FC = () => {
     setSelectedMoodFilter(null);
     setSelectedPlaylistId(null);
     setActiveView('library');
+    setIsMobileMenuOpen(false);
   };
 
   const selectPlaylist = (id: string) => {
@@ -105,31 +111,42 @@ export const Sidebar: React.FC = () => {
     setSelectedGenreFilter(null);
     setSelectedMoodFilter(null);
     setActiveView('playlist');
+    setIsMobileMenuOpen(false);
   };
 
-  return (
-    <aside className="w-64 bg-[#0a0b10] border-r border-slate-800/80 flex flex-col h-full select-none">
+  const sidebarContent = (
+    <div className="flex flex-col h-full bg-[#0a0b10] select-none">
       {/* Brand Header */}
-      <div className="p-4 flex items-center gap-3 border-b border-slate-800/60">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-          <Activity className="w-5 h-5 text-white" />
+      <div className="p-4 flex items-center justify-between border-b border-slate-800/60">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <Activity className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
+              AuraWave
+              <span className="text-[10px] uppercase font-mono tracking-widest text-indigo-400 bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-800/40">
+                Audio
+              </span>
+            </h1>
+            <p className="text-[11px] text-slate-400">Background & Offline Flow</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-            AuraWave
-            <span className="text-[10px] uppercase font-mono tracking-widest text-indigo-400 bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-800/40">
-              Audio
-            </span>
-          </h1>
-          <p className="text-[11px] text-slate-400">Background & Offline Flow</p>
-        </div>
+
+        {/* Mobile Close Button */}
+        <button
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 md:hidden cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Main Navigation */}
       <div className="p-3 space-y-1">
         <button
           onClick={() => selectNav('explore')}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
             activeView === 'explore' && !selectedPlaylistId && !selectedGenreFilter && !selectedMoodFilter
               ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold'
               : 'text-slate-300 hover:text-white hover:bg-slate-900/60'
@@ -143,7 +160,7 @@ export const Sidebar: React.FC = () => {
 
         <button
           onClick={() => selectNav('library')}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
             activeView === 'library' && !selectedPlaylistId && !selectedGenreFilter && !selectedMoodFilter
               ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold'
               : 'text-slate-300 hover:text-white hover:bg-slate-900/60'
@@ -158,7 +175,7 @@ export const Sidebar: React.FC = () => {
 
         <button
           onClick={() => selectNav('offline')}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
             activeView === 'offline'
               ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 font-semibold'
               : 'text-slate-300 hover:text-white hover:bg-slate-900/60'
@@ -173,7 +190,7 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Auto-Organize Action Button */}
-      <div className="px-3 py-2">
+      <div className="px-3 py-1.5">
         <button
           onClick={() => autoOrganizeLibrary(true)}
           disabled={isOrganizing}
@@ -200,7 +217,7 @@ export const Sidebar: React.FC = () => {
                 <button
                   key={m.name}
                   onClick={() => selectMood(m.name)}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors ${
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-xs transition-colors cursor-pointer ${
                     isSelected
                       ? 'bg-slate-800 text-white font-medium border-l-2 border-indigo-500'
                       : 'hover:bg-slate-900 text-slate-400 hover:text-slate-200'
@@ -313,7 +330,7 @@ export const Sidebar: React.FC = () => {
                           e.stopPropagation();
                           deletePlaylist(pl.id);
                         }}
-                        className="text-slate-600 hover:text-red-400 p-0.5"
+                        className="text-slate-600 hover:text-red-400 p-0.5 cursor-pointer"
                         title="Delete Playlist"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -326,6 +343,28 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="hidden md:flex flex-col w-64 h-full border-r border-slate-800/80 flex-shrink-0">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Slide-over Drawer */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity"
+          />
+          <div className="relative w-72 max-w-[85vw] h-full shadow-2xl z-10 animate-slide-right">
+            {sidebarContent}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
