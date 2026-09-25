@@ -1,0 +1,6 @@
+{
+  "name": "AuraWave - Background Audio & Offline Playlists",
+  "description": "Listen to YouTube and web audio in the background, create custom playlists, download for offline playback, and automatically organize tracks by genre and mood.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
