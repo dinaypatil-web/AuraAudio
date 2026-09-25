@@ -62,10 +62,16 @@ export const ExploreView: React.FC = () => {
         setAddedNotice(`Imported "${imported.title.slice(0, 30)}..."!`);
       }
       setQuickUrl('');
-      await playTrack(imported);
       setTimeout(() => setAddedNotice(null), 3500);
+
+      try {
+        await playTrack(imported);
+      } catch (playErr) {
+        console.warn('Playback audio gesture note:', playErr);
+      }
     } catch (err: any) {
-      alert(err.message || 'Failed to resolve link. Please verify URL.');
+      setAddedNotice(err.message || 'Failed to resolve link. Please verify URL.');
+      setTimeout(() => setAddedNotice(null), 4000);
     } finally {
       setIsResolving(false);
     }

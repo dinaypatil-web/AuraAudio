@@ -97,6 +97,85 @@ interface MusicContextType {
 
 const MusicContext = createContext<MusicContextType | null>(null);
 
+// Helper to resolve YouTube links client-side (for offline, static Vercel, or when /api is unreachable)
+async function resolveYouTubeTrackClient(url: string): Promise<Track> {
+  const trimmed = url.trim();
+  let youtubeId = '';
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    youtubeId = trimmed;
+  } else {
+    try {
+      const parsed = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+      if (parsed.searchParams.has('v')) {
+        const v = parsed.searchParams.get('v');
+        if (v && v.length === 11) youtubeId = v;
+      }
+      if (!youtubeId) {
+        const pathParts = parsed.pathname.split('/').filter(Boolean);
+        const last = pathParts[pathParts.length - 1];
+        if (last && last.length === 11) {
+          youtubeId = last;
+        } else if (pathParts[0] === 'shorts' && pathParts[1] && pathParts[1].length === 11) {
+          youtubeId = pathParts[1];
+        }
+      }
+    } catch {}
+  }
+
+  if (!youtubeId) {
+    const regExp = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/;
+    const match = trimmed.match(regExp);
+    if (match && match[1]) {
+      youtubeId = match[1];
+    }
+  }
+
+  if (!youtubeId || youtubeId.length !== 11) {
+    throw new Error('Could not parse a valid YouTube Video ID or URL');
+  }
+
+  let title = 'YouTube Audio';
+  let author = 'YouTube Creator';
+  let thumbnail = `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
+
+  try {
+    const oembedRes = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`
+    );
+    if (oembedRes.ok) {
+      const data = await oembedRes.json();
+      title = data.title || title;
+      author = data.author_name || author;
+      if (data.thumbnail_url) {
+        thumbnail = data.thumbnail_url;
+      }
+    }
+  } catch (e) {
+    console.warn('Client oEmbed fallback note:', e);
+  }
+
+  const classification = classifyTrackHeuristic(title, author, ['youtube', 'audio']);
+
+  return {
+    id: `yt-${youtubeId}`,
+    title,
+    artist: author,
+    platform: 'youtube',
+    sourceUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
+    youtubeId,
+    duration: 240,
+    coverUrl: thumbnail,
+    genre: classification.genre,
+    mood: classification.mood,
+    tags: ['youtube', 'audio'],
+    energyLevel: classification.energyLevel,
+    vibeDescription: classification.vibeDescription,
+    isStream: false,
+    addedAt: Date.now(),
+  };
+}
+
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -591,28 +670,39 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Import YouTube link
+  // Import YouTube link (with backend and client-side fallback for static Vercel)
   const importYouTubeUrl = async (url: string): Promise<Track> => {
-    const res = await fetch('/api/youtube/resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
+    let resolvedTrack: Track | null = null;
 
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to import YouTube video');
+    try {
+      const res = await fetch('/api/youtube/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.track) {
+          resolvedTrack = data.track;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('API resolve endpoint not reachable, using client-side resolver:', apiErr);
     }
 
-    const { track } = await res.json();
+    if (!resolvedTrack) {
+      resolvedTrack = await resolveYouTubeTrackClient(url);
+    }
+
     // Classify
-    const classified = classifyTrackHeuristic(track.title, track.artist, track.tags);
+    const classified = classifyTrackHeuristic(resolvedTrack.title, resolvedTrack.artist, resolvedTrack.tags);
     const enriched: Track = {
-      ...track,
-      genre: classified.genre,
-      mood: classified.mood,
-      energyLevel: classified.energyLevel,
-      vibeDescription: classified.vibeDescription,
+      ...resolvedTrack,
+      genre: resolvedTrack.genre || classified.genre,
+      mood: resolvedTrack.mood || classified.mood,
+      energyLevel: resolvedTrack.energyLevel || classified.energyLevel,
+      vibeDescription: resolvedTrack.vibeDescription || classified.vibeDescription,
     };
 
     const updatedTracks = [enriched, ...tracks.filter((t) => t.id !== enriched.id)];
