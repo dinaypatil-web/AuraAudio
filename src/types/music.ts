@@ -1,4 +1,4 @@
-export type PlatformType = 'youtube' | 'web_audio' | 'soundcloud' | 'podcast' | 'local';
+export type PlatformType = 'youtube' | 'web_audio' | 'soundcloud' | 'podcast' | 'local' | 'spotify';
 
 export type GenreType =
   | 'Lo-Fi'
@@ -28,6 +28,8 @@ export interface Track {
   platform: PlatformType;
   sourceUrl: string;
   youtubeId?: string;
+  spotifyId?: string;
+  spotifyEmbedUrl?: string;
   audioUrl?: string; // Direct audio stream or blob URL
   duration: number; // in seconds
   coverUrl: string;

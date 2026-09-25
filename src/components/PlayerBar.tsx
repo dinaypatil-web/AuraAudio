@@ -183,7 +183,20 @@ export const PlayerBar: React.FC = () => {
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+            {/* PiP Floating Background Mode (keeps playing when browser minimized like VLC) */}
+            <button
+              onClick={handlePiPToggle}
+              className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                playerState.isPictureInPicture
+                  ? 'text-sky-300 bg-sky-950/60 border border-sky-600/40'
+                  : 'text-slate-400 hover:text-sky-300'
+              }`}
+              title="VLC Background Floating Mode (plays when browser minimized)"
+            >
+              <Tv className="w-4 h-4" />
+            </button>
+
             {/* Add to Playlist */}
             <button
               onClick={() => setTrackToAddPlaylist(track)}
@@ -419,8 +432,8 @@ export const PlayerBar: React.FC = () => {
             <p className="text-[11px] text-slate-400 truncate">{track.artist}</p>
 
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 font-mono">
-              <span className={track.platform === 'youtube' ? 'text-red-400' : 'text-sky-400'}>
-                {track.platform === 'youtube' ? 'YouTube' : 'Web Audio'}
+              <span className={track.platform === 'youtube' ? 'text-red-400' : track.platform === 'spotify' ? 'text-emerald-400 font-semibold' : 'text-sky-400'}>
+                {track.platform === 'youtube' ? 'YouTube' : track.platform === 'spotify' ? 'Spotify' : 'Web Audio'}
               </span>
               <span aria-hidden="true">·</span>
               <span>{track.genre}</span>

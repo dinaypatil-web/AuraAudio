@@ -156,6 +156,11 @@ export const ExploreView: React.FC = () => {
                 <Youtube className="w-3 h-3 text-red-400" />
                 <span>YouTube</span>
               </>
+            ) : track.platform === 'spotify' ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-emerald-400 font-semibold">Spotify</span>
+              </>
             ) : track.platform === 'podcast' ? (
               <>
                 <Headphones className="w-3 h-3 text-purple-400" />
@@ -362,6 +367,17 @@ export const ExploreView: React.FC = () => {
           >
             <Headphones className="w-3.5 h-3.5" />
             <span>Podcasts</span>
+          </button>
+          <button
+            onClick={() => setSearchPlatformFilter('spotify')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              searchPlatformFilter === 'spotify'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Spotify</span>
           </button>
         </div>
 

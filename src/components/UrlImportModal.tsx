@@ -82,11 +82,11 @@ export const UrlImportModal: React.FC = () => {
         </button>
 
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400">
-            <Youtube className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white">Add YouTube Video or Audio Link</h3>
+            <h3 className="text-sm font-bold text-white">Add YouTube, Spotify, or Audio Link</h3>
             <p className="text-xs text-slate-400">Play in background & organize into playlists</p>
           </div>
         </div>
@@ -94,18 +94,18 @@ export const UrlImportModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              YouTube Video URL or Audio Link
+              YouTube, Spotify, or Audio URL
             </label>
             <input
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="e.g. https://www.youtube.com/watch?v=jfKfPfyJRdk"
+              placeholder="e.g. https://open.spotify.com/track/... or https://youtube.com/watch?v=..."
               autoFocus
               className="w-full bg-slate-900 border border-slate-700 text-xs text-white px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Supports standard YouTube videos, live streams, Lo-Fi feeds, and web audio streams.
+              Supports Spotify tracks & playlists, YouTube videos, Lo-Fi feeds, podcasts, and web audio.
             </p>
           </div>
 

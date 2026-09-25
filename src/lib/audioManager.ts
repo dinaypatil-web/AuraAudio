@@ -180,15 +180,15 @@ class AudioManager {
   }
 
   /**
-   * Generates a continuous 2-second silent audio buffer to maintain mobile OS playback category
+   * Generates a continuous 2-second sub-audible 28Hz audio buffer to maintain mobile OS playback category
+   * (Prevents iOS mediaserverd silence detectors from suspending background execution)
    */
   private initSilentKeeper() {
     if (typeof window === 'undefined') return;
     try {
-      // 2-second 8kHz mono 8-bit silent WAV PCM (16044 bytes)
       const sampleRate = 8000;
-      const numFrames = sampleRate * 2;
-      const dataSize = numFrames;
+      const numFrames = sampleRate * 2; // 2 seconds
+      const dataSize = numFrames * 2; // 16-bit PCM
       const buffer = new Uint8Array(44 + dataSize);
       const view = new DataView(buffer.buffer);
       buffer.set([0x52, 0x49, 0x46, 0x46], 0); // 'RIFF'
@@ -199,22 +199,28 @@ class AudioManager {
       view.setUint16(20, 1, true); // PCM
       view.setUint16(22, 1, true); // 1 channel
       view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate, true);
-      view.setUint16(32, 1, true);
-      view.setUint16(34, 8, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true); // 2 bytes per sample
+      view.setUint16(34, 16, true); // 16-bit
       buffer.set([0x64, 0x61, 0x74, 0x61], 36); // 'data'
       view.setUint32(40, dataSize, true);
-      buffer.fill(128, 44); // 128 is center silence in 8-bit PCM
+
+      // Sub-audible 28Hz sine wave to supply continuous non-zero audio energy to OS audio daemon
+      const freq = 28;
+      for (let i = 0; i < numFrames; i++) {
+        const val = Math.round(300 * Math.sin((2 * Math.PI * freq * i) / sampleRate));
+        view.setInt16(44 + i * 2, val, true);
+      }
 
       let binary = '';
       for (let i = 0; i < buffer.byteLength; i++) {
         binary += String.fromCharCode(buffer[i]);
       }
-      const silentDataUri = 'data:audio/wav;base64,' + btoa(binary);
+      const toneDataUri = 'data:audio/wav;base64,' + btoa(binary);
 
-      this.silentKeeper = new Audio(silentDataUri);
+      this.silentKeeper = new Audio(toneDataUri);
       this.silentKeeper.loop = true;
-      this.silentKeeper.volume = 0.05; // Above mobile browser silence detection threshold
+      this.silentKeeper.volume = 0.05; // Audible to OS power daemon, silent to human ear
       this.silentKeeper.setAttribute('playsinline', 'true');
       this.silentKeeper.setAttribute('webkit-playsinline', 'true');
       this.silentKeeper.style.position = 'fixed';
@@ -416,8 +422,8 @@ class AudioManager {
       playbackUrl = objectUrl;
     }
 
-    // Check if YouTube track
-    if (track.platform === 'youtube' && track.youtubeId && !offlineBlob) {
+    // Check if YouTube track or Spotify track with matched audio
+    if ((track.platform === 'youtube' || track.platform === 'spotify') && track.youtubeId && !offlineBlob && !playbackUrl) {
       this.activeMode = 'youtube';
       if (this.audioElement) {
         this.audioElement.pause();

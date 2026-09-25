@@ -560,6 +560,71 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
       return res.json({ success: true, track });
     }
 
+    // Check if Spotify link (track, playlist, album)
+    const spotifyMatch = trimmedUrl.match(
+      /(?:spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album)\/([a-zA-Z0-9]+)|spotify:(track|playlist|album):([a-zA-Z0-9]+))/i
+    );
+    if (spotifyMatch) {
+      const spType = spotifyMatch[1] || spotifyMatch[3];
+      const spotifyId = spotifyMatch[2] || spotifyMatch[4];
+
+      let title = 'Spotify Track';
+      let author = 'Spotify Artist';
+      let coverUrl =
+        'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80';
+      const iframeUrl = `https://open.spotify.com/embed/${spType}/${spotifyId}`;
+
+      try {
+        const spRes = await fetch(
+          `https://open.spotify.com/oembed?url=${encodeURIComponent(trimmedUrl)}`
+        );
+        if (spRes.ok) {
+          const spData = await spRes.json();
+          title = spData.title || title;
+          if (spData.thumbnail_url) coverUrl = spData.thumbnail_url;
+          if (title.includes(' - ')) {
+            const parts = title.split(' - ');
+            title = parts[0].trim();
+            author = parts.slice(1).join(' - ').trim();
+          }
+        }
+      } catch (spErr) {
+        console.warn('Spotify oEmbed fetch error:', spErr);
+      }
+
+      // Match with YouTube audio for background playback & offline caching!
+      let matchedYoutubeId = '';
+      try {
+        const ytMatches = await searchYouTubeLive(`${title} ${author} audio`, 3);
+        if (ytMatches.length > 0) {
+          matchedYoutubeId = ytMatches[0].youtubeId;
+        }
+      } catch {}
+
+      const classification = serverClassifyTrack(title, author, ['spotify', 'music']);
+
+      const track = {
+        id: `spotify-${spotifyId}`,
+        title,
+        artist: author,
+        platform: 'spotify',
+        sourceUrl: trimmedUrl,
+        spotifyId,
+        spotifyEmbedUrl: iframeUrl,
+        youtubeId: matchedYoutubeId || undefined,
+        duration: 210,
+        coverUrl,
+        genre: classification.genre,
+        mood: classification.mood,
+        tags: ['spotify', 'music', 'streaming'],
+        energyLevel: classification.energyLevel,
+        isStream: false,
+        addedAt: Date.now(),
+      };
+
+      return res.json({ success: true, track });
+    }
+
     // Extract YouTube ID with robust mobile & desktop URL parser
     let youtubeId = '';
     if (/^[a-zA-Z0-9_-]{11}$/.test(trimmedUrl)) {

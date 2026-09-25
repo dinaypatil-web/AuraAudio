@@ -97,9 +97,88 @@ interface MusicContextType {
 
 const MusicContext = createContext<MusicContextType | null>(null);
 
-// Helper to resolve YouTube links client-side (for offline, static Vercel, or when /api is unreachable)
-async function resolveYouTubeTrackClient(url: string): Promise<Track> {
+// Helper to resolve YouTube, Spotify, or audio links client-side (for offline, static Vercel, or when /api is unreachable)
+async function resolveMediaLinkClient(url: string): Promise<Track> {
   const trimmed = url.trim();
+
+  // 1. Direct audio file
+  if (trimmed.match(/\.(mp3|wav|m4a|aac|ogg)(\?.*)?$/i)) {
+    const fileName = trimmed.split('/').pop()?.split('?')[0] || 'Audio Stream';
+    const cleanTitle = decodeURIComponent(fileName.replace(/\.(mp3|wav|m4a|aac|ogg)$/i, ''));
+    const classification = classifyTrackHeuristic(cleanTitle, 'Web Audio');
+    return {
+      id: `web-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      title: cleanTitle,
+      artist: 'Web Audio Stream',
+      platform: 'web_audio',
+      sourceUrl: trimmed,
+      audioUrl: trimmed,
+      duration: 180,
+      coverUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80',
+      genre: classification.genre,
+      mood: classification.mood,
+      tags: ['web_audio', 'stream'],
+      energyLevel: classification.energyLevel,
+      isOfflineReady: true,
+      addedAt: Date.now(),
+    };
+  }
+
+  // 2. Spotify Track / Playlist / Album link
+  const spotifyMatch = trimmed.match(
+    /(?:spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album)\/([a-zA-Z0-9]+)|spotify:(track|playlist|album):([a-zA-Z0-9]+))/i
+  );
+  if (spotifyMatch) {
+    const spType = spotifyMatch[1] || spotifyMatch[3];
+    const spotifyId = spotifyMatch[2] || spotifyMatch[4];
+
+    let title = 'Spotify Track';
+    let author = 'Spotify Artist';
+    let coverUrl =
+      'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80';
+    const iframeUrl = `https://open.spotify.com/embed/${spType}/${spotifyId}`;
+
+    try {
+      const spRes = await fetch(
+        `https://open.spotify.com/oembed?url=${encodeURIComponent(trimmed)}`
+      );
+      if (spRes.ok) {
+        const spData = await spRes.json();
+        title = spData.title || title;
+        if (spData.thumbnail_url) coverUrl = spData.thumbnail_url;
+        if (title.includes(' - ')) {
+          const parts = title.split(' - ');
+          title = parts[0].trim();
+          author = parts.slice(1).join(' - ').trim();
+        }
+      }
+    } catch (spErr) {
+      console.warn('Spotify client oEmbed fallback:', spErr);
+    }
+
+    const classification = classifyTrackHeuristic(title, author, ['spotify', 'music']);
+
+    return {
+      id: `spotify-${spotifyId}`,
+      title,
+      artist: author,
+      platform: 'spotify',
+      sourceUrl: trimmed,
+      spotifyId,
+      spotifyEmbedUrl: iframeUrl,
+      duration: 210,
+      coverUrl,
+      genre: classification.genre,
+      mood: classification.mood,
+      tags: ['spotify', 'music', 'streaming'],
+      energyLevel: classification.energyLevel,
+      vibeDescription: classification.vibeDescription,
+      isStream: false,
+      addedAt: Date.now(),
+    };
+  }
+
+  // 3. YouTube link
   let youtubeId = '';
 
   if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
@@ -132,7 +211,7 @@ async function resolveYouTubeTrackClient(url: string): Promise<Track> {
   }
 
   if (!youtubeId || youtubeId.length !== 11) {
-    throw new Error('Could not parse a valid YouTube Video ID or URL');
+    throw new Error('Could not parse a valid YouTube, Spotify, or Audio URL');
   }
 
   let title = 'YouTube Audio';
@@ -463,16 +542,56 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`);
       if (res.ok) {
         const data = await res.json();
-        setSearchResults(data.tracks || []);
-      } else {
-        setSearchResults([]);
+        if (Array.isArray(data.tracks) && data.tracks.length > 0) {
+          setSearchResults(data.tracks);
+          return;
+        }
       }
     } catch (err) {
-      console.warn('Search platform request error:', err);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
+      console.warn('Backend search unreachable, running client search fallback:', err);
     }
+
+    // Client-side fallback search (essential on static Vercel hosting!)
+    try {
+      const itunesRes = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=15`
+      );
+      if (itunesRes.ok) {
+        const iData = await itunesRes.json();
+        if (Array.isArray(iData.results) && iData.results.length > 0) {
+          const clientTracks: Track[] = iData.results.map((r: any) => {
+            const classified = classifyTrackHeuristic(
+              r.trackName || '',
+              r.artistName || '',
+              [r.primaryGenreName || '']
+            );
+            return {
+              id: `itunes-${r.trackId}`,
+              title: r.trackName,
+              artist: r.artistName,
+              platform: 'web_audio' as const,
+              sourceUrl: r.trackViewUrl,
+              audioUrl: r.previewUrl,
+              duration: Math.round((r.trackTimeMillis || 180000) / 1000),
+              coverUrl:
+                r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl100,
+              genre: classified.genre,
+              mood: classified.mood,
+              tags: [r.primaryGenreName?.toLowerCase() || 'music', 'audio', q.toLowerCase()],
+              energyLevel: classified.energyLevel,
+              isOfflineReady: true,
+              addedAt: Date.now(),
+            };
+          });
+          setSearchResults(clientTracks);
+          return;
+        }
+      }
+    } catch (cErr) {
+      console.warn('Client search fallback error:', cErr);
+    }
+
+    setSearchResults([]);
   }, [searchPlatformFilter]);
 
   // Debounced search when searchQuery or searchPlatformFilter changes
@@ -692,7 +811,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (!resolvedTrack) {
-      resolvedTrack = await resolveYouTubeTrackClient(url);
+      resolvedTrack = await resolveMediaLinkClient(url);
     }
 
     // Classify
