@@ -8,6 +8,7 @@ import { LibraryView } from './components/LibraryView';
 import { PlaylistView } from './components/PlaylistView';
 import { OfflineVaultView } from './components/OfflineVaultView';
 import { ChannelView } from './components/ChannelView';
+import { ChannelTreeView } from './components/ChannelTreeView';
 import { UrlImportModal } from './components/UrlImportModal';
 import { EqualizerModal } from './components/EqualizerModal';
 import { SleepTimerModal } from './components/SleepTimerModal';
@@ -34,6 +35,11 @@ const AppContent: React.FC = () => {
           {activeView === 'playlist' && <PlaylistView />}
           {activeView === 'offline' && <OfflineVaultView />}
           {activeView === 'channel' && <ChannelView />}
+          {activeView === 'treeview' && (
+            <div className="p-4 sm:p-6 lg:p-8">
+              <ChannelTreeView />
+            </div>
+          )}
         </main>
 
         {/* Unified Bottom Player */}

@@ -21,6 +21,7 @@ import {
   ChevronRight,
   X,
   Radio,
+  FolderTree,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { GenreType, MoodType } from '../types/music';
@@ -188,6 +189,21 @@ export const Sidebar: React.FC = () => {
             <span>Offline Vault</span>
           </div>
           <span className="text-[11px] text-emerald-500/80 font-mono">{offlineCount}</span>
+        </button>
+
+        <button
+          onClick={() => selectNav('treeview')}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+            activeView === 'treeview'
+              ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30 font-semibold'
+              : 'text-slate-300 hover:text-white hover:bg-slate-900/60'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <FolderTree className="w-4 h-4 text-amber-400" />
+            <span>Channel & Folder Tree</span>
+          </div>
+          <span className="text-[10px] text-amber-400 font-mono">Tree</span>
         </button>
 
         {activeChannel && (

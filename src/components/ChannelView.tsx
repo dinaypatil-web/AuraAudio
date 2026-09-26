@@ -30,6 +30,7 @@ import { useMusic } from '../context/MusicContext';
 import { Track, ChannelFolder } from '../types/music';
 import { SortBar } from './SortBar';
 import { IdentificationBadge } from './IdentificationBadge';
+import { ChannelTreeView } from './ChannelTreeView';
 import {
   SortField,
   SortDirection,
@@ -63,6 +64,7 @@ export const ChannelView: React.FC = () => {
 
   // Navigation state for folders in folders
   const [currentFolderPath, setCurrentFolderPath] = useState<ChannelFolder[]>([]);
+  const [viewMode, setViewMode] = useState<'grid' | 'tree'>('grid');
   const [activeTab, setActiveTab] = useState<'all' | 'folders' | 'tracks'>('all');
   const [sortField, setSortField] = useState<SortField>('views');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -304,6 +306,19 @@ export const ChannelView: React.FC = () => {
                 </button>
 
                 <button
+                  onClick={() => setViewMode(viewMode === 'tree' ? 'grid' : 'tree')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === 'tree'
+                      ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/30'
+                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300 hover:text-white'
+                  }`}
+                  title="Toggle Hierarchical Tree View"
+                >
+                  <FolderTree className="w-4 h-4" />
+                  <span>{viewMode === 'tree' ? 'Show Folder Grid' : 'Hierarchy Tree View'}</span>
+                </button>
+
+                <button
                   onClick={() => setIsFollowed(!isFollowed)}
                   className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                     isFollowed
@@ -327,9 +342,34 @@ export const ChannelView: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. HIERARCHICAL FOLDER BREADCRUMB & NAVIGATION BAR                        */}
+      {/* 2. HIERARCHICAL FOLDER BREADCRUMB & NAVIGATION BAR OR TREE VIEW           */}
       {/* ========================================================================= */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+      {viewMode === 'tree' ? (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+          <div className="flex items-center justify-between p-3.5 bg-slate-900/80 border border-slate-800 rounded-2xl shadow-lg">
+            <div className="flex items-center gap-2.5">
+              <FolderTree className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="text-sm font-bold text-white">Hierarchical Tree View: {activeChannel.name}</h3>
+                <p className="text-xs text-slate-400">Expand channels, nested folders & subfolders, and audio tracks</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setViewMode('grid')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold cursor-pointer border border-slate-700 transition-colors"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Switch to Folder Grid</span>
+            </button>
+          </div>
+
+          <ChannelTreeView
+            channelOverride={activeChannel}
+            onOpenChannelView={() => setViewMode('grid')}
+          />
+        </div>
+      ) : (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         {/* Visual Identification Legend Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900/60 border border-slate-800/80 rounded-xl text-xs">
           <div className="flex items-center gap-2">
@@ -516,6 +556,14 @@ export const ChannelView: React.FC = () => {
             >
               <Music2 className="w-3.5 h-3.5" />
               <span>Tracks ({processedTracks.length})</span>
+            </button>
+            <button
+              onClick={() => setViewMode('tree')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-amber-300 hover:text-white hover:bg-amber-600/30 border border-amber-600/40 ml-1"
+              title="Open Hierarchical Tree View"
+            >
+              <FolderTree className="w-3.5 h-3.5 text-amber-400" />
+              <span>Tree View</span>
             </button>
           </div>
         </div>
@@ -861,6 +909,7 @@ export const ChannelView: React.FC = () => {
           </section>
         )}
       </div>
+      )}
     </div>
   );
 };

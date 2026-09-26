@@ -96,7 +96,7 @@ export const ExploreView: React.FC = () => {
   };
 
   // Determine active displayed tracks
-  const isSearchActive = searchQuery.trim().length > 0;
+  const isSearchActive = searchQuery.trim().length > 0 || searchResults.length > 0 || isSearching;
 
   // Curated tracks fallback/browse
   let curatedFiltered = tracks;
@@ -111,26 +111,29 @@ export const ExploreView: React.FC = () => {
   let activeDisplayTracks: Track[] = [];
   if (isSearchActive) {
     const q = searchQuery.toLowerCase().trim();
-    const localMatches = tracks.filter(
-      (t) =>
-        t.title.toLowerCase().includes(q) ||
-        t.artist.toLowerCase().includes(q) ||
-        t.genre.toLowerCase().includes(q) ||
-        t.mood.toLowerCase().includes(q)
-    );
+    const localMatches = q
+      ? tracks.filter(
+          (t) =>
+            t.title.toLowerCase().includes(q) ||
+            t.artist.toLowerCase().includes(q) ||
+            t.genre.toLowerCase().includes(q) ||
+            t.mood.toLowerCase().includes(q)
+        )
+      : [];
 
     // Merge searchResults with local matches
     const seen = new Set<string>();
     const merged = [...searchResults, ...localMatches].filter((t) => {
-      if (seen.has(t.id) || (t.youtubeId && seen.has(t.youtubeId))) return false;
-      seen.add(t.id);
-      if (t.youtubeId) seen.add(t.youtubeId);
+      const key = (t.id || t.youtubeId || `${t.title}-${t.artist}`).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
 
     let filtered = isOfflineModeOnly ? merged.filter((t) => t.isOfflineReady) : merged;
     if (searchPlatformFilter !== 'all') {
-      filtered = filtered.filter((t) => t.platform === searchPlatformFilter);
+      const platFiltered = filtered.filter((t) => t.platform === searchPlatformFilter);
+      filtered = platFiltered.length > 0 ? platFiltered : filtered;
     }
     activeDisplayTracks = sortTracks(filtered, sortField, sortDirection);
   }
@@ -314,9 +317,21 @@ export const ExploreView: React.FC = () => {
     if (searchQuery.trim()) {
       searchPlatforms(searchQuery, plat);
     } else if (plat === 'spotify') {
-      searchPlatforms('Coldplay Taylor Swift The Weeknd', 'spotify');
+      const q = 'Top Hits';
+      setSearchQuery(q);
+      searchPlatforms(q, 'spotify');
     } else if (plat === 'youtube') {
-      searchPlatforms('Lo-Fi Chill Beats', 'youtube');
+      const q = 'Lo-Fi Chill';
+      setSearchQuery(q);
+      searchPlatforms(q, 'youtube');
+    } else if (plat === 'podcast') {
+      const q = 'Tech Talk';
+      setSearchQuery(q);
+      searchPlatforms(q, 'podcast');
+    } else if (plat === 'web_audio') {
+      const q = 'Acoustic';
+      setSearchQuery(q);
+      searchPlatforms(q, 'web_audio');
     }
   };
 

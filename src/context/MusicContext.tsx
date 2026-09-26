@@ -668,7 +668,7 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         cleanup();
         resolve([]);
       }
-    }, 4500);
+    }, 1800);
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -710,10 +710,13 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
     setIsSearching(true);
     const plat = platform || searchPlatformFilter;
 
-    // 1. Try backend multi-platform search endpoint
+    // 1. Try backend multi-platform search endpoint (supports Vercel serverless /api/search and local Express)
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`);
-      if (res.ok) {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`, {
+        signal: AbortSignal.timeout(3500),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         if (Array.isArray(data.tracks) && data.tracks.length > 0) {
           const seen = new Set<string>();
@@ -734,12 +737,54 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
       console.warn('Backend search unreachable, running client search fallback:', err);
     }
 
-    // 2. Client-side fallback search (essential on static Vercel hosting, offline, or when backend is rate-limited)
+    // 2. Client-side fallback search (essential on static Vercel hosting, offline, or when backend is cold-starting)
     try {
       const clientPromises: Promise<Track[]>[] = [];
 
-      // If Spotify or All: Query Deezer catalog via JSONP (guaranteed CORS-safe in all browsers)
+      // A. Spotify Platform Search (Dual Engine: iTunes Music Catalog with Spotify metadata + Deezer JSONP)
       if (plat === 'all' || plat === 'spotify') {
+        // iTunes open API formatted as Spotify tracks (100% reliable globally in every browser)
+        clientPromises.push(
+          fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=18`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (!Array.isArray(data?.results)) return [];
+              const list: Track[] = [];
+              const seen = new Set<string>();
+              for (const r of data.results) {
+                if (!r.trackId || seen.has(String(r.trackId))) continue;
+                seen.add(String(r.trackId));
+                const title = r.trackName || 'Track';
+                const artist = r.artistName || 'Artist';
+                const cl = classifyTrackHeuristic(title, artist, [r.primaryGenreName || '']);
+                list.push({
+                  id: `sp-itunes-${r.trackId}`,
+                  title,
+                  artist,
+                  platform: 'spotify' as const,
+                  sourceUrl: `https://open.spotify.com/search/${encodeURIComponent(title + ' ' + artist)}`,
+                  spotifyId: String(r.trackId),
+                  spotifyEmbedUrl: `https://open.spotify.com/embed/track/${r.trackId}`,
+                  audioUrl: r.previewUrl || '',
+                  duration: Math.round((r.trackTimeMillis || 180000) / 1000),
+                  coverUrl:
+                    (r.artworkUrl100 || '').replace('100x100bb', '600x600bb') ||
+                    'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
+                  genre: cl.genre,
+                  mood: cl.mood,
+                  tags: ['spotify', 'music', (r.primaryGenreName || '').toLowerCase(), q.toLowerCase()],
+                  energyLevel: cl.energyLevel,
+                  isStream: false,
+                  isOfflineReady: !!r.previewUrl,
+                  addedAt: Date.now(),
+                });
+              }
+              return list;
+            })
+            .catch(() => [])
+        );
+
+        // Also query Deezer catalog in parallel for additional Spotify tracks
         clientPromises.push(
           searchDeezerJSONP(q).then((items) => {
             if (!Array.isArray(items)) return [];
@@ -763,7 +808,11 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
                 spotifyEmbedUrl: `https://open.spotify.com/embed/track/${item.id}`,
                 audioUrl: item.preview || '',
                 duration: item.duration || 210,
-                coverUrl: item.album?.cover_big || item.album?.cover_medium || item.artist?.picture_big || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
+                coverUrl:
+                  item.album?.cover_big ||
+                  item.album?.cover_medium ||
+                  item.artist?.picture_big ||
+                  'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80',
                 genre: cl.genre,
                 mood: cl.mood,
                 tags: ['spotify', 'music', q.toLowerCase()],
@@ -774,35 +823,72 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
               });
             }
             return list;
-          })
+          }).catch(() => [])
         );
       }
 
-      // If YouTube or All: Query iTunes open catalog with rich audio streams
-      if (plat === 'all' || plat === 'youtube' || plat === 'web_audio') {
+      // B. YouTube Search (Invidious Public APIs + iTunes Audio Matching)
+      if (plat === 'all' || plat === 'youtube') {
+        const invidiousFetch = async (): Promise<Track[]> => {
+          const instances = [
+            'https://inv.nadeko.net',
+            'https://invidious.nerdvpn.de',
+            'https://invidious.private.coffee',
+          ];
+          for (const inst of instances) {
+            try {
+              const iRes = await fetch(`${inst}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, {
+                signal: AbortSignal.timeout(2200),
+              });
+              if (iRes.ok) {
+                const iData = await iRes.json();
+                if (Array.isArray(iData) && iData.length > 0) {
+                  return iData.slice(0, 15).map((v: any) => ({
+                    id: `yt-${v.videoId}`,
+                    title: v.title || 'YouTube Video',
+                    artist: v.author || 'YouTube Creator',
+                    platform: 'youtube' as const,
+                    sourceUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
+                    youtubeId: v.videoId,
+                    duration: v.lengthSeconds || 240,
+                    coverUrl:
+                      v.videoThumbnails?.[0]?.url ||
+                      `https://img.youtube.com/vi/${v.videoId}/hqdefault.jpg`,
+                    genre: 'Lo-Fi' as const,
+                    mood: 'Focus & Study' as const,
+                    tags: ['youtube', 'video', q.toLowerCase()],
+                    energyLevel: 5,
+                    isStream: !!v.liveNow,
+                    isOfflineReady: false,
+                    addedAt: Date.now(),
+                  }));
+                }
+              }
+            } catch {}
+          }
+          return [];
+        };
+        clientPromises.push(invidiousFetch());
+
+        // Also query iTunes catalog for YouTube category
         clientPromises.push(
           fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=14`)
             .then((r) => r.json())
             .then((iData) => {
               if (!Array.isArray(iData?.results)) return [];
-              const seen = new Set<string>();
               const list: Track[] = [];
               for (const r of iData.results) {
                 if (!r.trackId) continue;
-                const id = `itunes-${r.trackId}`;
-                if (seen.has(id)) continue;
-                seen.add(id);
-
                 const cl = classifyTrackHeuristic(r.trackName || '', r.artistName || '', [r.primaryGenreName || '']);
                 list.push({
-                  id,
+                  id: `yt-itunes-${r.trackId}`,
                   title: r.trackName,
                   artist: r.artistName,
-                  platform: (plat === 'youtube' ? 'youtube' : 'web_audio') as 'youtube' | 'web_audio',
-                  sourceUrl: r.trackViewUrl,
+                  platform: 'youtube' as const,
+                  sourceUrl: r.trackViewUrl || `https://www.youtube.com/results?search_query=${encodeURIComponent((r.trackName || '') + ' ' + (r.artistName || ''))}`,
                   audioUrl: r.previewUrl,
                   duration: Math.round((r.trackTimeMillis || 180000) / 1000),
-                  coverUrl: r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl100,
+                  coverUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb') || r.artworkUrl100,
                   genre: cl.genre,
                   mood: cl.mood,
                   tags: [r.primaryGenreName?.toLowerCase() || 'music', 'audio', q.toLowerCase()],
@@ -817,41 +903,65 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         );
       }
 
-      // If Podcast:
+      // C. Web Audio / Royalty-Free Search
+      if (plat === 'all' || plat === 'web_audio') {
+        clientPromises.push(
+          fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=12`)
+            .then((r) => r.json())
+            .then((iData) => {
+              if (!Array.isArray(iData?.results)) return [];
+              return iData.results.filter((r: any) => r.trackId).map((r: any) => {
+                const cl = classifyTrackHeuristic(r.trackName || '', r.artistName || '', [r.primaryGenreName || '']);
+                return {
+                  id: `itunes-${r.trackId}`,
+                  title: r.trackName,
+                  artist: r.artistName,
+                  platform: 'web_audio' as const,
+                  sourceUrl: r.trackViewUrl,
+                  audioUrl: r.previewUrl,
+                  duration: Math.round((r.trackTimeMillis || 180000) / 1000),
+                  coverUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb') || r.artworkUrl100,
+                  genre: cl.genre,
+                  mood: cl.mood,
+                  tags: [r.primaryGenreName?.toLowerCase() || 'music', 'audio', q.toLowerCase()],
+                  energyLevel: cl.energyLevel,
+                  isOfflineReady: true,
+                  addedAt: Date.now(),
+                };
+              });
+            })
+            .catch(() => [])
+        );
+      }
+
+      // D. Podcast Search
       if (plat === 'all' || plat === 'podcast') {
         clientPromises.push(
           fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=podcast&entity=podcast&limit=8`)
             .then((r) => r.json())
             .then((pData) => {
               if (!Array.isArray(pData?.results)) return [];
-              const seen = new Set<string>();
-              const list: Track[] = [];
-              for (const r of pData.results) {
-                const podId = r.collectionId || r.trackId;
-                if (!podId) continue;
-                const id = `pod-${podId}`;
-                if (seen.has(id)) continue;
-                seen.add(id);
-
-                const cl = classifyTrackHeuristic(r.collectionName || r.trackName || '', r.artistName || '', ['podcast']);
-                list.push({
-                  id,
-                  title: r.collectionName || r.trackName,
-                  artist: r.artistName,
-                  platform: 'podcast' as const,
-                  sourceUrl: r.collectionViewUrl,
-                  audioUrl: r.feedUrl,
-                  duration: 1800,
-                  coverUrl: r.artworkUrl100?.replace('100x100bb', '600x600bb') || r.artworkUrl600 || r.artworkUrl100,
-                  genre: 'Podcast & Talk',
-                  mood: 'Focus & Study',
-                  tags: ['podcast', 'talk', q.toLowerCase()],
-                  energyLevel: cl.energyLevel,
-                  isOfflineReady: false,
-                  addedAt: Date.now(),
+              return pData.results
+                .filter((r: any) => r.collectionId || r.trackId)
+                .map((r: any) => {
+                  const cl = classifyTrackHeuristic(r.collectionName || r.trackName || '', r.artistName || '', ['podcast']);
+                  return {
+                    id: `pod-${r.collectionId || r.trackId}`,
+                    title: r.collectionName || r.trackName,
+                    artist: r.artistName,
+                    platform: 'podcast' as const,
+                    sourceUrl: r.collectionViewUrl,
+                    audioUrl: r.feedUrl,
+                    duration: 1800,
+                    coverUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb') || r.artworkUrl600 || r.artworkUrl100,
+                    genre: 'Podcast & Talk' as const,
+                    mood: 'Focus & Study' as const,
+                    tags: ['podcast', 'talk', q.toLowerCase()],
+                    energyLevel: cl.energyLevel,
+                    isOfflineReady: false,
+                    addedAt: Date.now(),
+                  };
                 });
-              }
-              return list;
             })
             .catch(() => [])
         );
