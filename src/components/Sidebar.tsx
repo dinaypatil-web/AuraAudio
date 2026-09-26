@@ -20,6 +20,7 @@ import {
   Activity,
   ChevronRight,
   X,
+  Radio,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { GenreType, MoodType } from '../types/music';
@@ -64,6 +65,7 @@ export const Sidebar: React.FC = () => {
     isOrganizing,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
+    activeChannel,
   } = useMusic();
 
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
@@ -187,6 +189,23 @@ export const Sidebar: React.FC = () => {
           </div>
           <span className="text-[11px] text-emerald-500/80 font-mono">{offlineCount}</span>
         </button>
+
+        {activeChannel && (
+          <button
+            onClick={() => selectNav('channel')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              activeView === 'channel'
+                ? 'bg-red-600/20 text-red-300 border border-red-500/30 font-semibold'
+                : 'text-slate-300 hover:text-white hover:bg-slate-900/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Radio className="w-4 h-4 text-red-400 flex-shrink-0 animate-pulse" />
+              <span className="truncate">{activeChannel.name}</span>
+            </div>
+            <span className="text-[10px] text-red-400 font-mono flex-shrink-0">Channel</span>
+          </button>
+        )}
       </div>
 
       {/* Auto-Organize Action Button */}

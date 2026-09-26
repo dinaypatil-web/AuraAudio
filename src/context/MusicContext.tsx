@@ -15,6 +15,19 @@ import {
   idbSetSetting,
 } from '../lib/idb';
 import { classifyTrackHeuristic, requestAICategorization } from '../lib/classifier';
+import { ensureTrackSortMetadata } from '../lib/trackUtils';
+
+export interface ChannelData {
+  name: string;
+  id?: string;
+  avatarUrl?: string;
+  bannerUrl?: string;
+  trackCount: number;
+  subscribers?: string;
+  genres?: string[];
+  tracks: Track[];
+  loading: boolean;
+}
 
 interface MusicContextType {
   tracks: Track[];
@@ -42,6 +55,11 @@ interface MusicContextType {
   downloadsProgress: Record<string, number>;
   isOrganizing: boolean;
   organizeStatus: string | null;
+
+  // Channel Exploration
+  activeChannel: ChannelData | null;
+  setActiveChannel: React.Dispatch<React.SetStateAction<ChannelData | null>>;
+  exploreChannel: (channelOrArtistName: string, channelId?: string, initialTrack?: Track) => Promise<void>;
 
   // Actions
   playTrack: (track: Track, newQueue?: Track[]) => Promise<void>;
@@ -292,6 +310,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [downloadsProgress, setDownloadsProgress] = useState<Record<string, number>>({});
   const [isOrganizing, setIsOrganizing] = useState<boolean>(false);
   const [organizeStatus, setOrganizeStatus] = useState<string | null>(null);
+
+  // Channel Exploration State
+  const [activeChannel, setActiveChannel] = useState<ChannelData | null>(null);
 
   // Modals
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
@@ -831,6 +852,154 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
     return () => clearTimeout(timer);
   }, [searchQuery, searchPlatformFilter, searchPlatforms]);
 
+  // Channel Exploration Handler
+  const exploreChannel = useCallback(
+    async (channelOrArtistName: string, channelId?: string, initialTrack?: Track) => {
+      const name = (channelOrArtistName || '').trim();
+      if (!name && !channelId) return;
+
+      const baseList: Track[] = [];
+      if (initialTrack) {
+        baseList.push(initialTrack);
+      }
+
+      // Collect any matching tracks from library
+      const libMatches = tracks.filter((t) =>
+        (t.channelTitle || t.artist).toLowerCase().includes(name.toLowerCase())
+      );
+      for (const t of libMatches) {
+        const k = (t.youtubeId || t.id).toLowerCase();
+        if (!baseList.some((b) => (b.youtubeId || b.id).toLowerCase() === k)) {
+          baseList.push(t);
+        }
+      }
+
+      // Collect matching tracks from active search results
+      const searchMatches = searchResults.filter((t) =>
+        (t.channelTitle || t.artist).toLowerCase().includes(name.toLowerCase())
+      );
+      for (const t of searchMatches) {
+        const k = (t.youtubeId || t.id).toLowerCase();
+        if (!baseList.some((b) => (b.youtubeId || b.id).toLowerCase() === k)) {
+          baseList.push(t);
+        }
+      }
+
+      const initialTracks = baseList.map(ensureTrackSortMetadata);
+
+      // Transition view immediately so user sees responsiveness
+      setActiveView('channel');
+      setActiveChannel({
+        name,
+        id: channelId,
+        avatarUrl: initialTrack?.coverUrl || initialTracks[0]?.coverUrl || '',
+        bannerUrl: initialTracks[1]?.coverUrl || initialTracks[0]?.coverUrl || initialTrack?.coverUrl || '',
+        trackCount: Math.max(initialTracks.length, 1),
+        subscribers: '1.2M subscribers',
+        genres: Array.from(new Set(initialTracks.map((t) => t.genre).filter(Boolean))),
+        tracks: initialTracks,
+        loading: true,
+      });
+
+      try {
+        const res = await fetch(
+          `/api/channel?name=${encodeURIComponent(name)}&id=${encodeURIComponent(channelId || '')}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.channel && Array.isArray(data.tracks) && data.tracks.length > 0) {
+            const seen = new Set<string>();
+            const mergedTracks: Track[] = [];
+
+            // Add initialTrack first if present so clicked track remains visible at top or in catalog
+            if (initialTrack) {
+              const k = (initialTrack.youtubeId || initialTrack.id).toLowerCase();
+              seen.add(k);
+              mergedTracks.push(ensureTrackSortMetadata(initialTrack));
+            }
+
+            for (const t of [...initialTracks, ...data.tracks]) {
+              const key = (t.youtubeId || t.id).toLowerCase();
+              if (!seen.has(key)) {
+                seen.add(key);
+                mergedTracks.push(ensureTrackSortMetadata(t));
+              }
+            }
+
+            setActiveChannel({
+              name: data.channel.name || name,
+              id: data.channel.id || channelId,
+              avatarUrl:
+                data.channel.avatarUrl ||
+                initialTrack?.coverUrl ||
+                mergedTracks[0]?.coverUrl ||
+                'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80',
+              bannerUrl:
+                data.channel.bannerUrl ||
+                mergedTracks[1]?.coverUrl ||
+                mergedTracks[0]?.coverUrl ||
+                initialTrack?.coverUrl ||
+                'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&auto=format&fit=crop&q=80',
+              trackCount: mergedTracks.length,
+              subscribers: data.channel.subscribers || '1.2M subscribers',
+              genres: Array.from(new Set(mergedTracks.map((t) => t.genre).filter(Boolean))),
+              tracks: mergedTracks,
+              loading: false,
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Channel endpoint unreachable, querying search fallback:', err);
+      }
+
+      // Fallback: search across platforms for the channel name
+      try {
+        const searchRes = await fetch(`/api/search?q=${encodeURIComponent(name)}&platform=all`);
+        let fallbackTracks = [...initialTracks];
+        if (searchRes.ok) {
+          const sData = await searchRes.json();
+          if (Array.isArray(sData.tracks)) {
+            fallbackTracks = [...fallbackTracks, ...sData.tracks];
+          }
+        }
+
+        const seen = new Set<string>();
+        const merged: Track[] = [];
+        if (initialTrack) {
+          seen.add((initialTrack.youtubeId || initialTrack.id).toLowerCase());
+          merged.push(ensureTrackSortMetadata(initialTrack));
+        }
+
+        for (const t of fallbackTracks) {
+          const k = (t.youtubeId || t.id).toLowerCase();
+          if (!seen.has(k)) {
+            seen.add(k);
+            merged.push(ensureTrackSortMetadata(t));
+          }
+        }
+
+        setActiveChannel({
+          name,
+          id: channelId,
+          avatarUrl:
+            merged[0]?.coverUrl ||
+            initialTrack?.coverUrl ||
+            'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80',
+          bannerUrl: merged[1]?.coverUrl || merged[0]?.coverUrl || initialTrack?.coverUrl || '',
+          trackCount: merged.length,
+          subscribers: '1.2M subscribers',
+          genres: Array.from(new Set(merged.map((t) => t.genre).filter(Boolean))),
+          tracks: merged,
+          loading: false,
+        });
+      } catch {
+        setActiveChannel((prev) => (prev ? { ...prev, loading: false } : null));
+      }
+    },
+    [tracks, searchResults]
+  );
+
   const addTrackToPlaylist = async (playlistId: string, trackId: string) => {
     const pl = playlists.find((p) => p.id === playlistId);
     if (!pl) return;
@@ -1117,6 +1286,9 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         downloadsProgress,
         isOrganizing,
         organizeStatus,
+        activeChannel,
+        setActiveChannel,
+        exploreChannel,
         playTrack,
         togglePlay,
         seek,

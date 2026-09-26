@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Play,
   Pause,
@@ -9,36 +9,37 @@ import {
   FolderSync,
   Upload,
   HardDriveDownload,
-  Layers,
-  Filter,
-  Trash2,
   Headphones,
-  Music,
-  ExternalLink,
+  Eye,
+  Calendar,
+  HardDrive,
+  Clock,
+  Radio,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Track, MoodType, GenreType } from '../types/music';
-
-function formatDuration(seconds: number): string {
-  if (isNaN(seconds) || seconds <= 0) return '--:--';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
+import { SortBar } from './SortBar';
+import {
+  SortField,
+  SortDirection,
+  sortTracks,
+  formatViews,
+  formatFileSize,
+  formatDate,
+  formatDuration,
+} from '../lib/trackUtils';
 
 export const LibraryView: React.FC = () => {
   const {
     tracks,
     playTrack,
     playerState,
-    addToQueue,
     downloadTrackForOffline,
     downloadsProgress,
     removeOfflineTrack,
     setTrackToAddPlaylist,
     autoOrganizeLibrary,
     isOrganizing,
-    organizeStatus,
     importLocalAudioFile,
     selectedGenreFilter,
     setSelectedGenreFilter,
@@ -46,36 +47,54 @@ export const LibraryView: React.FC = () => {
     setSelectedMoodFilter,
     isOfflineModeOnly,
     searchQuery,
+    exploreChannel,
   } = useMusic();
 
-  const [groupingMode, setGroupingMode] = useState<'all' | 'mood' | 'genre'>('mood');
+  const [groupingMode, setGroupingMode] = useState<'all' | 'mood' | 'genre'>('all');
   const [offlineFilter, setOfflineFilter] = useState<'all' | 'offline'>('all');
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Filter tracks
-  let filtered = tracks;
+  const filtered = useMemo(() => {
+    let result = [...tracks];
 
-  if (isOfflineModeOnly || offlineFilter === 'offline') {
-    filtered = filtered.filter((t) => t.isOfflineReady);
-  }
+    if (isOfflineModeOnly || offlineFilter === 'offline') {
+      result = result.filter((t) => t.isOfflineReady);
+    }
 
-  if (selectedGenreFilter) {
-    filtered = filtered.filter((t) => t.genre === selectedGenreFilter);
-  }
+    if (selectedGenreFilter) {
+      result = result.filter((t) => t.genre === selectedGenreFilter);
+    }
 
-  if (selectedMoodFilter) {
-    filtered = filtered.filter((t) => t.mood === selectedMoodFilter);
-  }
+    if (selectedMoodFilter) {
+      result = result.filter((t) => t.mood === selectedMoodFilter);
+    }
 
-  if (searchQuery.trim()) {
-    const q = searchQuery.toLowerCase().trim();
-    filtered = filtered.filter(
-      (t) =>
-        t.title.toLowerCase().includes(q) ||
-        t.artist.toLowerCase().includes(q) ||
-        t.genre.toLowerCase().includes(q) ||
-        t.mood.toLowerCase().includes(q)
-    );
-  }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          t.artist.toLowerCase().includes(q) ||
+          (t.channelTitle && t.channelTitle.toLowerCase().includes(q)) ||
+          t.genre.toLowerCase().includes(q) ||
+          t.mood.toLowerCase().includes(q)
+      );
+    }
+
+    // Apply sorting
+    return sortTracks(result, sortField, sortDirection);
+  }, [
+    tracks,
+    isOfflineModeOnly,
+    offlineFilter,
+    selectedGenreFilter,
+    selectedMoodFilter,
+    searchQuery,
+    sortField,
+    sortDirection,
+  ]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -94,18 +113,19 @@ export const LibraryView: React.FC = () => {
     const isPlaying = isCurrent && playerState.isPlaying;
     const isDownloading = downloadsProgress[track.id] !== undefined;
     const downloadPct = downloadsProgress[track.id] || 0;
+    const channelName = track.channelTitle || track.artist;
 
     return (
       <div
         key={track.id}
-        className={`group flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs transition-colors border ${
+        className={`group flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-colors border ${
           isCurrent
-            ? 'bg-indigo-950/40 border-indigo-500/40 text-white'
+            ? 'bg-indigo-950/50 border-indigo-500/40 text-white'
             : 'hover:bg-slate-900/80 border-transparent hover:border-slate-800 text-slate-300'
         }`}
       >
         {/* Index / Play Button */}
-        <div className="w-8 flex items-center justify-center">
+        <div className="w-8 flex items-center justify-center flex-shrink-0">
           <button
             onClick={() => playTrack(track, list)}
             className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 group-hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
@@ -126,7 +146,7 @@ export const LibraryView: React.FC = () => {
           <img
             src={track.coverUrl}
             alt={track.title}
-            className="w-10 h-10 rounded-md object-cover flex-shrink-0 bg-slate-950"
+            className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-slate-950 border border-slate-800/80"
           />
           <div className="min-w-0 flex-1">
             <h4
@@ -138,22 +158,45 @@ export const LibraryView: React.FC = () => {
             >
               {track.title}
             </h4>
-            <p className="text-[11px] text-slate-400 truncate">{track.artist}</p>
+
+            {/* Clickable Channel Name to explore channel tracks */}
+            <p
+              onClick={(e) => {
+                e.stopPropagation();
+                exploreChannel(channelName, track.channelId, track);
+              }}
+              className="text-[11px] text-slate-400 truncate hover:text-indigo-300 hover:underline cursor-pointer transition-colors mt-0.5 flex items-center gap-1"
+              title={`Explore Channel: ${channelName}`}
+            >
+              <span>{channelName}</span>
+              <span className="text-[10px] text-slate-500 font-mono">↗</span>
+            </p>
           </div>
         </div>
 
-        {/* Genre & Mood metadata (clean unboxed) */}
-        <div className="hidden md:flex items-center gap-2 w-56 text-slate-400 font-mono text-[11px] truncate">
+        {/* Genre & Mood metadata */}
+        <div className="hidden md:flex items-center gap-2 w-48 text-slate-400 font-mono text-[11px] truncate">
           <span>{track.genre}</span>
           <span aria-hidden="true" className="text-slate-600">·</span>
           <span className="text-indigo-400 truncate">{track.mood}</span>
         </div>
 
-        {/* Platform tag */}
-        <div className="hidden lg:block w-28 text-[11px] font-mono text-slate-400">
-          <span className={track.platform === 'youtube' ? 'text-red-400' : 'text-sky-400'}>
-            {track.platform === 'youtube' ? 'YouTube' : 'Web Audio'}
-          </span>
+        {/* Views */}
+        <div className="hidden lg:flex items-center justify-end gap-1 w-24 text-right font-mono text-[11px] text-slate-400">
+          <Eye className="w-3 h-3 text-slate-500" />
+          <span>{formatViews(track.views)}</span>
+        </div>
+
+        {/* File Size */}
+        <div className="hidden lg:flex items-center justify-end gap-1 w-20 text-right font-mono text-[11px] text-slate-400">
+          <HardDrive className="w-3 h-3 text-slate-500" />
+          <span>{formatFileSize(track.fileSize, track.duration)}</span>
+        </div>
+
+        {/* Date Created */}
+        <div className="hidden xl:flex items-center justify-end gap-1 w-24 text-right font-mono text-[11px] text-slate-400">
+          <Calendar className="w-3 h-3 text-slate-500" />
+          <span>{formatDate(track.createdAt || track.addedAt)}</span>
         </div>
 
         {/* Duration */}
@@ -162,10 +205,10 @@ export const LibraryView: React.FC = () => {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-1.5 ml-4">
+        <div className="flex items-center gap-1.5 ml-4 flex-shrink-0">
           <button
             onClick={() => setTrackToAddPlaylist(track)}
-            className="p-1.5 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
             title="Add to Custom Playlist"
           >
             <FolderPlus className="w-3.5 h-3.5" />
@@ -180,7 +223,7 @@ export const LibraryView: React.FC = () => {
               }
             }}
             disabled={isDownloading}
-            className={`p-1.5 rounded transition-colors ${
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               track.isOfflineReady
                 ? 'text-emerald-400 hover:text-red-400'
                 : isDownloading
@@ -203,15 +246,15 @@ export const LibraryView: React.FC = () => {
   };
 
   return (
-    <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-6 pb-20">
+    <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-6 pb-28">
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            Audio Library & Smart Auto-Sort
+            Audio Library & Catalog
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Organize background YouTube videos and audio files by genre or mood automatically.
+            Sort files by name, genre, creation date, size, views, and duration. Click any channel name to explore all its tracks.
           </p>
         </div>
 
@@ -251,7 +294,17 @@ export const LibraryView: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Group By selector */}
         <div className="flex items-center gap-1 p-1 bg-slate-900/80 border border-slate-800 rounded-lg">
-          <span className="text-[11px] text-slate-500 px-2 font-mono">Organize by:</span>
+          <span className="text-[11px] text-slate-500 px-2 font-mono">View mode:</span>
+          <button
+            onClick={() => setGroupingMode('all')}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              groupingMode === 'all'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            All Tracks ({filtered.length})
+          </button>
           <button
             onClick={() => setGroupingMode('mood')}
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
@@ -272,24 +325,14 @@ export const LibraryView: React.FC = () => {
           >
             Genre Clusters
           </button>
-          <button
-            onClick={() => setGroupingMode('all')}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              groupingMode === 'all'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            All Tracks ({filtered.length})
-          </button>
         </div>
 
-        {/* Offline Filter */}
+        {/* Active Filter Chips & Offline Filter */}
         <div className="flex items-center gap-2">
           {selectedGenreFilter && (
             <button
               onClick={() => setSelectedGenreFilter(null)}
-              className="flex items-center gap-1 text-xs text-indigo-400 bg-indigo-950/50 border border-indigo-800/40 px-2.5 py-1 rounded"
+              className="flex items-center gap-1 text-xs text-indigo-400 bg-indigo-950/50 border border-indigo-800/40 px-2.5 py-1 rounded-lg"
             >
               <span>Genre: {selectedGenreFilter}</span>
               <span className="text-slate-500 hover:text-white">×</span>
@@ -299,7 +342,7 @@ export const LibraryView: React.FC = () => {
           {selectedMoodFilter && (
             <button
               onClick={() => setSelectedMoodFilter(null)}
-              className="flex items-center gap-1 text-xs text-purple-400 bg-purple-950/50 border border-purple-800/40 px-2.5 py-1 rounded"
+              className="flex items-center gap-1 text-xs text-purple-400 bg-purple-950/50 border border-purple-800/40 px-2.5 py-1 rounded-lg"
             >
               <span>Mood: {selectedMoodFilter}</span>
               <span className="text-slate-500 hover:text-white">×</span>
@@ -320,13 +363,24 @@ export const LibraryView: React.FC = () => {
         </div>
       </div>
 
+      {/* Comprehensive Sort Bar */}
+      <SortBar
+        sortField={sortField}
+        sortDirection={sortDirection}
+        onSortChange={(field, direction) => {
+          setSortField(field);
+          setSortDirection(direction);
+        }}
+        totalTracks={filtered.length}
+      />
+
       {/* Main Content Render */}
       {filtered.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
           <Headphones className="w-8 h-8 text-slate-600 mx-auto mb-3" />
           <p className="text-sm text-slate-400 font-medium">No tracks found matching your filter</p>
           <p className="text-xs text-slate-500 mt-1">
-            Explore YouTube videos or import audio links to start building your offline library.
+            Explore YouTube videos or import audio links to start building your library.
           </p>
         </div>
       ) : groupingMode === 'mood' ? (
@@ -388,9 +442,22 @@ export const LibraryView: React.FC = () => {
           })}
         </div>
       ) : (
-        /* Flat List View */
+        /* Flat List View with Table Header */
         <div className="space-y-1 bg-slate-900/40 border border-slate-800/80 rounded-xl p-3">
-          {filtered.map((t, idx) => renderTrackRow(t, idx, filtered))}
+          <div className="hidden md:flex items-center justify-between px-3.5 py-2 text-[11px] font-mono font-medium text-slate-500 border-b border-slate-800/60 select-none">
+            <div className="w-8 text-center">#</div>
+            <div className="flex-1 min-w-0 pr-4">TITLE & CHANNEL</div>
+            <div className="w-48">GENRE / MOOD</div>
+            <div className="hidden lg:block w-24 text-right">VIEWS</div>
+            <div className="hidden lg:block w-20 text-right">SIZE</div>
+            <div className="hidden xl:block w-24 text-right">CREATED</div>
+            <div className="w-16 text-right">DURATION</div>
+            <div className="w-16 text-right pr-2">ACTIONS</div>
+          </div>
+
+          <div className="space-y-1 pt-1">
+            {filtered.map((t, idx) => renderTrackRow(t, idx, filtered))}
+          </div>
         </div>
       )}
     </div>

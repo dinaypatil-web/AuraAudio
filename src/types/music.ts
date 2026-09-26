@@ -35,6 +35,13 @@ export interface Track {
   coverUrl: string;
   genre: GenreType;
   mood: MoodType;
+  channelId?: string;
+  channelTitle?: string;
+  channelUrl?: string;
+  channelAvatarUrl?: string;
+  views?: number;
+  fileSize?: number; // Size in bytes
+  createdAt?: number; // Timestamp of creation/publish
   tags: string[];
   energyLevel?: number; // 1-10
   vibeDescription?: string;

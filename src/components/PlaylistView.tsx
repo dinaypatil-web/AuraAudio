@@ -44,6 +44,7 @@ export const PlaylistView: React.FC = () => {
     setActiveView,
     addLinkToPlaylist,
     addTrackAndSaveToPlaylist,
+    exploreChannel,
   } = useMusic();
 
   const [inputUrl, setInputUrl] = useState('');
@@ -415,7 +416,17 @@ export const PlaylistView: React.FC = () => {
                     >
                       {track.title}
                     </h4>
-                    <p className="text-[11px] text-slate-400 truncate">{track.artist}</p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        exploreChannel(track.channelTitle || track.artist, track.channelId, track);
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-indigo-300 hover:underline truncate cursor-pointer text-left inline-flex items-center gap-1 transition-colors"
+                      title={`Explore Channel: ${track.channelTitle || track.artist}`}
+                    >
+                      <span>{track.channelTitle || track.artist}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">↗</span>
+                    </button>
                   </div>
                 </div>
 

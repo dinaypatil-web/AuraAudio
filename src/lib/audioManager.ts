@@ -167,7 +167,21 @@ class AudioManager {
       }
     });
 
-    this.audioElement.addEventListener('ended', () => {
+    this.audioElement.addEventListener('ended', async () => {
+      // Check if track ended early because it was a 30s preview (audio preview cutoff)
+      const current = this.state.currentTime;
+      const expectedTotal = this.state.duration || this.state.currentTrack?.duration || 0;
+      if (
+        this.activeMode === 'audio' &&
+        this.state.currentTrack &&
+        expectedTotal > 45 &&
+        current < expectedTotal - 15
+      ) {
+        console.log(`Audio preview ended at ${Math.round(current)}s of ${expectedTotal}s; transitioning to full track audio stream`);
+        await this.switchToFullYouTubeTrack(this.state.currentTrack, Math.floor(current));
+        return;
+      }
+
       this.handleTrackEnded();
     });
 
@@ -444,7 +458,7 @@ class AudioManager {
     this.playSilentKeeper();
     this.notify();
 
-    // Check if we have an offline cached audio blob in IndexedDB
+    // 1. Check if we have an offline cached audio blob in IndexedDB (full offline file)
     let offlineBlob = await idbGetAudioBlob(track.id);
     let playbackUrl = track.audioUrl;
 
@@ -457,26 +471,22 @@ class AudioManager {
       playbackUrl = objectUrl;
     }
 
-    // If track is Spotify or YouTube without youtubeId and without offline blob, resolve full audio match dynamically
-    if ((track.platform === 'spotify' || track.platform === 'youtube') && !track.youtubeId && !offlineBlob) {
-      try {
-        const res = await fetch(`/api/match-audio?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
-        if (res.ok) {
-          const matchData = await res.json();
-          if (matchData.youtubeId) {
-            track.youtubeId = matchData.youtubeId;
-            if (!track.duration || track.duration < 60) {
-              track.duration = matchData.duration || 210;
-            }
-          }
-        }
-      } catch (matchErr) {
-        console.warn('Dynamic audio match failed:', matchErr);
-      }
-    }
+    // 2. Identify if audioUrl is just a 30s preview link or html embed
+    const is30sPreview =
+      !offlineBlob &&
+      (!playbackUrl ||
+        playbackUrl.includes('dz-preview') ||
+        playbackUrl.includes('audio-preview') ||
+        playbackUrl.includes('mzstatic') ||
+        playbackUrl.includes('apple.com') ||
+        playbackUrl.includes('deezer.com') ||
+        playbackUrl.includes('open.spotify.com') ||
+        playbackUrl.includes('youtube.com') ||
+        track.platform === 'spotify' ||
+        track.platform === 'youtube');
 
-    // Check if YouTube track or Spotify track with matched audio for full continuous background streaming
-    if ((track.platform === 'youtube' || track.platform === 'spotify') && track.youtubeId && !offlineBlob) {
+    // 3. If track has youtubeId already and no offline blob, ALWAYS play complete track via YouTube
+    if (track.youtubeId && !offlineBlob) {
       this.activeMode = 'youtube';
       if (this.audioElement) {
         this.audioElement.pause();
@@ -487,8 +497,39 @@ class AudioManager {
       this.ytPlayer.setVolume(this.state.volume * 100);
       this.ytPlayer.playVideo();
       this.state.duration = track.duration || 240;
-    } else {
-      // Native audio playback (for streams, uploaded MP3s, audio previews, or cached offline tracks)
+    } else if (is30sPreview && !offlineBlob) {
+      // Track only has a 30s preview; resolve complete YouTube version dynamically so full song plays!
+      try {
+        const res = await fetch(`/api/match-audio?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
+        if (res.ok) {
+          const matchData = await res.json();
+          if (matchData.youtubeId) {
+            track.youtubeId = matchData.youtubeId;
+            if (!track.duration || track.duration < 60) {
+              track.duration = matchData.duration || 210;
+            }
+            this.activeMode = 'youtube';
+            if (this.audioElement) {
+              this.audioElement.pause();
+            }
+            await this.ensureYouTubePlayer();
+            this.ytPlayer.loadVideoById(track.youtubeId);
+            this.ytPlayer.setVolume(this.state.volume * 100);
+            this.ytPlayer.playVideo();
+            this.state.duration = track.duration;
+            this.updateMediaSessionMetadata(track);
+            this.updatePiPCanvas();
+            this.notify();
+            return;
+          }
+        }
+      } catch (matchErr) {
+        console.warn('Dynamic audio match failed, falling back to audio preview:', matchErr);
+      }
+    }
+
+    // 4. Native audio playback (for uploaded MP3s, offline blobs, or direct full audio streams)
+    if (this.activeMode !== 'youtube') {
       this.activeMode = 'audio';
       if (this.ytPlayer && this.ytPlayer.pauseVideo) {
         try {
@@ -516,18 +557,11 @@ class AudioManager {
           } catch (err) {
             console.warn('Audio play request failed, trying YouTube fallback:', err);
             if (track.youtubeId) {
-              this.activeMode = 'youtube';
-              await this.ensureYouTubePlayer();
-              this.ytPlayer.loadVideoById(track.youtubeId);
-              this.ytPlayer.playVideo();
+              await this.switchToFullYouTubeTrack(track, 0);
             }
           }
         } else if (track.youtubeId) {
-          // Fallback to YouTube engine if audioUrl is not a direct stream
-          this.activeMode = 'youtube';
-          await this.ensureYouTubePlayer();
-          this.ytPlayer.loadVideoById(track.youtubeId);
-          this.ytPlayer.playVideo();
+          await this.switchToFullYouTubeTrack(track, 0);
         }
       }
     }
@@ -535,6 +569,49 @@ class AudioManager {
     this.updateMediaSessionMetadata(track);
     this.updatePiPCanvas();
     this.notify();
+  }
+
+  /**
+   * Seamlessly switches from a short preview audio stream to the complete YouTube track
+   */
+  public async switchToFullYouTubeTrack(track: Track, startSeconds: number = 0): Promise<void> {
+    try {
+      if (this.audioElement) {
+        this.audioElement.pause();
+      }
+
+      if (!track.youtubeId) {
+        const res = await fetch(`/api/match-audio?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
+        if (res.ok) {
+          const matchData = await res.json();
+          if (matchData.youtubeId) {
+            track.youtubeId = matchData.youtubeId;
+            if (!track.duration || track.duration < 60) {
+              track.duration = matchData.duration || 210;
+            }
+          }
+        }
+      }
+
+      if (track.youtubeId) {
+        this.activeMode = 'youtube';
+        await this.ensureYouTubePlayer();
+        this.ytPlayer.loadVideoById({
+          videoId: track.youtubeId,
+          startSeconds: Math.max(0, startSeconds),
+        });
+        this.ytPlayer.setVolume(this.state.volume * 100);
+        this.ytPlayer.playVideo();
+        this.state.duration = track.duration || 240;
+        this.state.currentTime = startSeconds;
+        this.state.isPlaying = true;
+        this.state.isBuffering = false;
+        this.startYouTubeProgressTimer();
+        this.notify();
+      }
+    } catch (err) {
+      console.warn('Switch to full YouTube track failed:', err);
+    }
   }
 
   public async togglePlay(): Promise<void> {

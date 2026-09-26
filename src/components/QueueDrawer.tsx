@@ -12,6 +12,7 @@ export const QueueDrawer: React.FC = () => {
     playerState,
     removeFromQueue,
     clearQueue,
+    exploreChannel,
   } = useMusic();
 
   if (!isQueueOpen) return null;
@@ -76,7 +77,17 @@ export const QueueDrawer: React.FC = () => {
                     <h4 className={`font-medium truncate ${isCurrent ? 'text-indigo-300' : 'text-slate-200'}`}>
                       {track.title}
                     </h4>
-                    <p className="text-[10px] text-slate-400 truncate">{track.artist}</p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsQueueOpen(false);
+                        exploreChannel(track.channelTitle || track.artist, track.channelId, track);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-indigo-300 hover:underline truncate cursor-pointer text-left block"
+                      title={`Explore Channel: ${track.channelTitle || track.artist}`}
+                    >
+                      {track.channelTitle || track.artist} ↗
+                    </button>
                   </div>
                 </div>
 

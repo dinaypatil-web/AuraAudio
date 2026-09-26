@@ -66,6 +66,7 @@ export const PlayerBar: React.FC = () => {
     setIsQueueOpen,
     queue,
     setTrackToAddPlaylist,
+    exploreChannel,
   } = useMusic();
 
   const [visualizerBars, setVisualizerBars] = useState<number[]>([14, 28, 20, 34, 22, 16]);
@@ -300,12 +301,23 @@ export const PlayerBar: React.FC = () => {
               <h4 className="text-xs font-semibold text-white truncate leading-tight">
                 {track.title}
               </h4>
-              <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                {track.artist} ·{' '}
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    exploreChannel(track.channelTitle || track.artist, track.channelId, track);
+                  }}
+                  className="hover:text-indigo-300 hover:underline cursor-pointer truncate max-w-[150px] text-left transition-colors font-medium inline-flex items-center gap-0.5 group/ch"
+                  title={`Explore Channel: ${track.channelTitle || track.artist}`}
+                >
+                  <span className="truncate">{track.channelTitle || track.artist}</span>
+                  <span className="text-[9px] text-slate-500 group-hover/ch:text-indigo-400 font-mono">↗</span>
+                </button>
+                <span>·</span>
                 <span className={track.platform === 'spotify' ? 'text-emerald-400 font-medium' : track.platform === 'youtube' ? 'text-red-400 font-medium' : 'text-sky-400 font-medium'}>
                   {track.platform === 'spotify' ? 'Spotify' : track.platform === 'youtube' ? 'YouTube' : 'Audio'}
                 </span>
-              </p>
+              </div>
             </div>
           </div>
 
@@ -496,7 +508,18 @@ export const PlayerBar: React.FC = () => {
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <h3 className="text-lg sm:text-xl font-bold text-white line-clamp-1">{track.title}</h3>
-                <p className="text-sm text-slate-400 truncate mt-0.5">{track.artist}</p>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsFullPlayerOpen(false);
+                    exploreChannel(track.channelTitle || track.artist, track.channelId, track);
+                  }}
+                  className="text-sm text-slate-400 hover:text-indigo-300 hover:underline truncate mt-0.5 cursor-pointer inline-flex items-center gap-1 font-medium transition-colors text-left"
+                  title={`Explore Channel: ${track.channelTitle || track.artist}`}
+                >
+                  <span>{track.channelTitle || track.artist}</span>
+                  <span className="text-xs text-slate-500 font-mono">↗</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -814,7 +837,16 @@ export const PlayerBar: React.FC = () => {
             >
               {track.title}
             </h4>
-            <p className="text-[11px] text-slate-400 truncate">{track.artist}</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                exploreChannel(track.channelTitle || track.artist, track.channelId, track);
+              }}
+              className="text-[11px] text-slate-400 hover:text-indigo-300 hover:underline truncate cursor-pointer text-left block"
+              title={`Explore Channel: ${track.channelTitle || track.artist}`}
+            >
+              {track.channelTitle || track.artist} ↗
+            </button>
 
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 font-mono">
               <span

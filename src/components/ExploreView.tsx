@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Track } from '../types/music';
+import { SortBar } from './SortBar';
+import { SortField, SortDirection, sortTracks, formatViews } from '../lib/trackUtils';
 
 export const ExploreView: React.FC = () => {
   const {
@@ -46,8 +48,11 @@ export const ExploreView: React.FC = () => {
     addTrackAndSaveToPlaylist,
     toggleLike,
     isTrackLiked,
+    exploreChannel,
   } = useMusic();
 
+  const [sortField, setSortField] = useState<SortField>('views');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [quickUrl, setQuickUrl] = useState('');
   const [targetPlaylistId, setTargetPlaylistId] = useState<string>('');
   const [isResolving, setIsResolving] = useState(false);
@@ -126,7 +131,7 @@ export const ExploreView: React.FC = () => {
     if (searchPlatformFilter !== 'all') {
       filtered = filtered.filter((t) => t.platform === searchPlatformFilter);
     }
-    activeDisplayTracks = filtered;
+    activeDisplayTracks = sortTracks(filtered, sortField, sortDirection);
   }
 
   const liveRadios = curatedFiltered.filter((t) => t.isStream);
@@ -141,6 +146,7 @@ export const ExploreView: React.FC = () => {
     const isCurrent = playerState.currentTrack?.id === track.id;
     const isPlaying = isCurrent && playerState.isPlaying;
     const isDownloading = downloadsProgress[track.id] !== undefined;
+    const channelName = track.channelTitle || track.artist;
 
     return (
       <div
@@ -212,14 +218,25 @@ export const ExploreView: React.FC = () => {
             >
               {track.title}
             </h4>
-            <p className="text-[11px] text-slate-400 truncate mt-0.5">{track.artist}</p>
+
+            {/* Clickable Channel Name to explore channel tracks */}
+            <p
+              onClick={(e) => {
+                e.stopPropagation();
+                exploreChannel(channelName, track.channelId, track);
+              }}
+              className="text-[11px] text-slate-400 truncate mt-0.5 hover:text-indigo-300 hover:underline cursor-pointer transition-colors inline-flex items-center gap-1"
+              title={`Explore Channel: ${channelName}`}
+            >
+              <span>{channelName}</span>
+              <span className="text-[10px] text-slate-500 font-mono">↗</span>
+            </p>
           </div>
 
           {/* Clean metadata (no pill enclosures) */}
-          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-2 pt-2 border-t border-slate-800/60">
-            <span>{track.genre}</span>
-            <span aria-hidden="true">·</span>
-            <span className="text-indigo-400 truncate">{track.mood}</span>
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono mt-2 pt-2 border-t border-slate-800/60">
+            <span className="truncate">{track.genre}</span>
+            <span className="text-slate-500">{formatViews(track.views)}</span>
           </div>
 
           {/* Actions Footer */}
