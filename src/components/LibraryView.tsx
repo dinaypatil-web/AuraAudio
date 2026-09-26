@@ -28,6 +28,7 @@ import {
   formatDate,
   formatDuration,
 } from '../lib/trackUtils';
+import { IdentificationBadge } from './IdentificationBadge';
 
 export const LibraryView: React.FC = () => {
   const {
@@ -108,16 +109,17 @@ export const LibraryView: React.FC = () => {
   const moods = Array.from(new Set(filtered.map((t) => t.mood))) as MoodType[];
   const genres = Array.from(new Set(filtered.map((t) => t.genre))) as GenreType[];
 
-  const renderTrackRow = (track: Track, index: number, list: Track[]) => {
+  const renderTrackRow = (track: Track, index: number, list: Track[], keyPrefix = 'lib') => {
     const isCurrent = playerState.currentTrack?.id === track.id;
     const isPlaying = isCurrent && playerState.isPlaying;
     const isDownloading = downloadsProgress[track.id] !== undefined;
     const downloadPct = downloadsProgress[track.id] || 0;
     const channelName = track.channelTitle || track.artist;
+    const uniqueKey = `${keyPrefix}-${track.id}-${index}`;
 
     return (
       <div
-        key={track.id}
+        key={uniqueKey}
         className={`group flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-colors border ${
           isCurrent
             ? 'bg-indigo-950/50 border-indigo-500/40 text-white'
@@ -149,28 +151,33 @@ export const LibraryView: React.FC = () => {
             className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-slate-950 border border-slate-800/80"
           />
           <div className="min-w-0 flex-1">
-            <h4
-              onClick={() => playTrack(track, list)}
-              className={`font-semibold truncate cursor-pointer hover:underline ${
-                isCurrent ? 'text-indigo-300' : 'text-slate-100'
-              }`}
-              title={track.title}
-            >
-              {track.title}
-            </h4>
+            <div className="flex items-center gap-2">
+              <h4
+                onClick={() => playTrack(track, list)}
+                className={`font-semibold truncate cursor-pointer hover:underline ${
+                  isCurrent ? 'text-indigo-300' : 'text-slate-100'
+                }`}
+                title={track.title}
+              >
+                {track.title}
+              </h4>
+              <IdentificationBadge type="track" size="sm" />
+            </div>
 
             {/* Clickable Channel Name to explore channel tracks */}
-            <p
-              onClick={(e) => {
-                e.stopPropagation();
-                exploreChannel(channelName, track.channelId, track);
-              }}
-              className="text-[11px] text-slate-400 truncate hover:text-indigo-300 hover:underline cursor-pointer transition-colors mt-0.5 flex items-center gap-1"
-              title={`Explore Channel: ${channelName}`}
-            >
-              <span>{channelName}</span>
-              <span className="text-[10px] text-slate-500 font-mono">↗</span>
-            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  exploreChannel(channelName, track.channelId, track);
+                }}
+                className="text-[11px] text-slate-400 truncate hover:text-indigo-300 hover:underline cursor-pointer transition-colors flex items-center gap-1"
+                title={`Explore Channel & Folders: ${channelName}`}
+              >
+                <span>{channelName}</span>
+                <span className="text-[10px] text-amber-400 font-mono">📁 ↗</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -406,7 +413,7 @@ export const LibraryView: React.FC = () => {
                   </button>
                 </div>
                 <div className="space-y-1">
-                  {moodTracks.map((t, idx) => renderTrackRow(t, idx, moodTracks))}
+                  {moodTracks.map((t, idx) => renderTrackRow(t, idx, moodTracks, `mood-${mood}`))}
                 </div>
               </div>
             );
@@ -435,7 +442,7 @@ export const LibraryView: React.FC = () => {
                   </button>
                 </div>
                 <div className="space-y-1">
-                  {genreTracks.map((t, idx) => renderTrackRow(t, idx, genreTracks))}
+                  {genreTracks.map((t, idx) => renderTrackRow(t, idx, genreTracks, `genre-${genre}`))}
                 </div>
               </div>
             );
@@ -456,7 +463,7 @@ export const LibraryView: React.FC = () => {
           </div>
 
           <div className="space-y-1 pt-1">
-            {filtered.map((t, idx) => renderTrackRow(t, idx, filtered))}
+            {filtered.map((t, idx) => renderTrackRow(t, idx, filtered, 'all'))}
           </div>
         </div>
       )}

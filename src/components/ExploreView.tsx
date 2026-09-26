@@ -24,6 +24,7 @@ import { useMusic } from '../context/MusicContext';
 import { Track } from '../types/music';
 import { SortBar } from './SortBar';
 import { SortField, SortDirection, sortTracks, formatViews } from '../lib/trackUtils';
+import { IdentificationBadge } from './IdentificationBadge';
 
 export const ExploreView: React.FC = () => {
   const {
@@ -142,15 +143,16 @@ export const ExploreView: React.FC = () => {
 
   const customPlaylists = playlists.filter((p) => !p.isSmartAuto);
 
-  const renderTrackCard = (track: Track, queueList: Track[]) => {
+  const renderTrackCard = (track: Track, queueList: Track[], keyPrefix = 'card', index?: number) => {
     const isCurrent = playerState.currentTrack?.id === track.id;
     const isPlaying = isCurrent && playerState.isPlaying;
     const isDownloading = downloadsProgress[track.id] !== undefined;
     const channelName = track.channelTitle || track.artist;
+    const uniqueKey = `${keyPrefix}-${track.id}-${index !== undefined ? index : ''}`;
 
     return (
       <div
-        key={track.id}
+        key={uniqueKey}
         className={`group relative bg-slate-900/60 hover:bg-slate-900/95 border rounded-xl p-3 transition-all duration-200 flex flex-col ${
           isCurrent ? 'border-indigo-500/60 shadow-lg shadow-indigo-950/30' : 'border-slate-800/80 hover:border-slate-700'
         }`}
@@ -211,6 +213,20 @@ export const ExploreView: React.FC = () => {
         {/* Info */}
         <div className="flex-1 flex flex-col justify-between">
           <div>
+            <div className="flex items-center justify-between gap-1 mb-1">
+              <IdentificationBadge type="track" size="sm" />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  exploreChannel(channelName, track.channelId, track);
+                }}
+                className="hover:opacity-80 transition-opacity cursor-pointer"
+                title={`Explore ${channelName} channel and folders`}
+              >
+                <IdentificationBadge type="channel" size="sm" />
+              </button>
+            </div>
+
             <h4
               onClick={() => playTrack(track, queueList)}
               className="text-xs font-semibold text-white line-clamp-1 hover:text-indigo-300 cursor-pointer"
@@ -226,10 +242,10 @@ export const ExploreView: React.FC = () => {
                 exploreChannel(channelName, track.channelId, track);
               }}
               className="text-[11px] text-slate-400 truncate mt-0.5 hover:text-indigo-300 hover:underline cursor-pointer transition-colors inline-flex items-center gap-1"
-              title={`Explore Channel: ${channelName}`}
+              title={`Explore Channel & Folders: ${channelName}`}
             >
               <span>{channelName}</span>
-              <span className="text-[10px] text-slate-500 font-mono">↗</span>
+              <span className="text-[10px] text-amber-400 font-mono">📁 ↗</span>
             </p>
           </div>
 
@@ -572,7 +588,7 @@ export const ExploreView: React.FC = () => {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {activeDisplayTracks.map((t) => renderTrackCard(t, activeDisplayTracks))}
+                {activeDisplayTracks.map((t, idx) => renderTrackCard(t, activeDisplayTracks, 'search', idx))}
               </div>
             </div>
           )}
@@ -631,7 +647,7 @@ export const ExploreView: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {curatedFiltered.map((t) => renderTrackCard(t, curatedFiltered))}
+              {curatedFiltered.map((t, idx) => renderTrackCard(t, curatedFiltered, 'spotlight', idx))}
             </div>
           )}
         </section>
@@ -650,7 +666,7 @@ export const ExploreView: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {liveRadios.map((t) => renderTrackCard(t, curatedFiltered))}
+                {liveRadios.map((t, idx) => renderTrackCard(t, curatedFiltered, 'live', idx))}
               </div>
             </section>
           )}
@@ -663,7 +679,7 @@ export const ExploreView: React.FC = () => {
                 <span className="text-xs text-slate-400 font-mono">{focusTracks.length} items</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {focusTracks.map((t) => renderTrackCard(t, curatedFiltered))}
+                {focusTracks.map((t, idx) => renderTrackCard(t, curatedFiltered, 'focus', idx))}
               </div>
             </section>
           )}
@@ -676,7 +692,7 @@ export const ExploreView: React.FC = () => {
                 <span className="text-xs text-slate-400 font-mono">{chillTracks.length} items</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {chillTracks.map((t) => renderTrackCard(t, curatedFiltered))}
+                {chillTracks.map((t, idx) => renderTrackCard(t, curatedFiltered, 'chill', idx))}
               </div>
             </section>
           )}
@@ -689,7 +705,7 @@ export const ExploreView: React.FC = () => {
                 <span className="text-xs text-slate-400 font-mono">{workoutTracks.length} items</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {workoutTracks.map((t) => renderTrackCard(t, curatedFiltered))}
+                {workoutTracks.map((t, idx) => renderTrackCard(t, curatedFiltered, 'workout', idx))}
               </div>
             </section>
           )}
@@ -702,7 +718,7 @@ export const ExploreView: React.FC = () => {
                 <span className="text-xs text-slate-400 font-mono">{ambientTracks.length} items</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {ambientTracks.map((t) => renderTrackCard(t, curatedFiltered))}
+                {ambientTracks.map((t, idx) => renderTrackCard(t, curatedFiltered, 'ambient', idx))}
               </div>
             </section>
           )}

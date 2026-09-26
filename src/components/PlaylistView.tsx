@@ -261,11 +261,11 @@ export const PlaylistView: React.FC = () => {
 
               {inPlaylistResults.length > 0 && (
                 <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
-                  {inPlaylistResults.map((result) => {
+                  {inPlaylistResults.map((result, idx) => {
                     const alreadyIn = playlist.trackIds.includes(result.id);
                     return (
                       <div
-                        key={result.id}
+                        key={`${result.id}-${idx}`}
                         className="flex items-center justify-between p-2 bg-slate-950/70 border border-slate-800/80 rounded-lg text-xs"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -380,7 +380,7 @@ export const PlaylistView: React.FC = () => {
 
             return (
               <div
-                key={track.id}
+                key={`${track.id}-${idx}`}
                 className={`group flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs transition-colors border ${
                   isCurrent
                     ? 'bg-indigo-950/40 border-indigo-500/40 text-white'

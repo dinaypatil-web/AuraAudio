@@ -105,7 +105,7 @@ export const OfflineVaultView: React.FC = () => {
 
             return (
               <div
-                key={track.id}
+                key={`${track.id}-${idx}`}
                 className={`group flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs transition-colors border ${
                   isCurrent
                     ? 'bg-emerald-950/30 border-emerald-500/40 text-white'

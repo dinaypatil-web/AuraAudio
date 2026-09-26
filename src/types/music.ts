@@ -55,6 +55,21 @@ export interface Track {
   isFavorite?: boolean;
 }
 
+export type ItemIdentificationType = 'channel' | 'folder' | 'track';
+
+export interface ChannelFolder {
+  id: string;
+  name: string;
+  description?: string;
+  folderType?: 'album' | 'disc' | 'collection' | 'playlist' | 'series' | 'folder';
+  coverUrl?: string;
+  itemCount?: number;
+  subfolders?: ChannelFolder[];
+  tracks: Track[];
+  createdAt?: number;
+  tags?: string[];
+}
+
 export interface Playlist {
   id: string;
   title: string;

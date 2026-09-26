@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import { buildChannelFolderHierarchy } from './src/lib/channelFolderUtils';
 
 dotenv.config();
 
@@ -631,15 +632,21 @@ async function searchITunesLive(query: string, mediaType: 'music' | 'podcast' = 
     const data = await res.json();
     if (!Array.isArray(data.results)) return [];
 
-    return data.results.map((r: any) => {
+    const seenIds = new Set<string>();
+    const mapped: any[] = [];
+    for (const r of data.results) {
       const isPodcast = mediaType === 'podcast';
+      const id = `itunes-${r.trackId || r.collectionId}`;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+
       const title = r.trackName || r.collectionName || 'Track';
       const artist = r.artistName || 'Creator';
       const rawGenre = r.primaryGenreName || (isPodcast ? 'Podcast & Talk' : 'Pop');
       const classification = serverClassifyTrack(title, artist, [rawGenre, query]);
 
-      return {
-        id: `itunes-${r.trackId || r.collectionId}`,
+      mapped.push({
+        id,
         title,
         artist,
         platform: isPodcast ? 'podcast' : 'web_audio',
@@ -653,8 +660,10 @@ async function searchITunesLive(query: string, mediaType: 'music' | 'podcast' = 
         energyLevel: classification.energyLevel,
         isOfflineReady: !!r.previewUrl,
         addedAt: Date.now(),
-      };
-    });
+      });
+    }
+
+    return mapped;
   } catch (err) {
     console.warn('iTunes search error:', err);
     return [];
@@ -870,21 +879,40 @@ app.get('/api/channel', async (req: Request, res: Response) => {
     const allFound = [...matchingCurated, ...ytResults, ...audioResults];
 
     // Deduplicate
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenYts = new Set<string>();
+    const seenTitles = new Set<string>();
     const tracks: any[] = [];
     for (const t of allFound) {
-      const key = (t.youtubeId || t.id || t.title).toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        tracks.push({
-          ...t,
-          channelTitle: channelName || t.channelTitle || t.artist,
-          channelId: channelId || t.channelId,
-          views: t.views || (200000 + Math.floor(Math.random() * 3000000)),
-          fileSize: t.fileSize || Math.round((t.duration || 210) * 24000),
-          createdAt: t.createdAt || Date.now() - Math.floor(Math.random() * 180 * 24 * 3600 * 1000),
-        });
+      if (!t) continue;
+      const idKey = (t.id || '').toLowerCase();
+      const ytKey = (t.youtubeId || '').toLowerCase();
+      const titleKey = `${(t.title || '').trim().toLowerCase()}:::${(t.artist || '').trim().toLowerCase()}`;
+
+      if ((idKey && seenIds.has(idKey)) || (ytKey && seenYts.has(ytKey)) || (titleKey && seenTitles.has(titleKey))) {
+        // If already present, enhance existing track if new one has audio stream
+        if (idKey) {
+          const existing = tracks.find((x) => (x.id || '').toLowerCase() === idKey);
+          if (existing) {
+            if (!existing.audioUrl && t.audioUrl) existing.audioUrl = t.audioUrl;
+            if (!existing.youtubeId && t.youtubeId) existing.youtubeId = t.youtubeId;
+          }
+        }
+        continue;
       }
+
+      if (idKey) seenIds.add(idKey);
+      if (ytKey) seenYts.add(ytKey);
+      if (titleKey) seenTitles.add(titleKey);
+
+      tracks.push({
+        ...t,
+        channelTitle: channelName || t.channelTitle || t.artist,
+        channelId: channelId || t.channelId,
+        views: t.views || (200000 + Math.floor(Math.random() * 3000000)),
+        fileSize: t.fileSize || Math.round((t.duration || 210) * 24000),
+        createdAt: t.createdAt || Date.now() - Math.floor(Math.random() * 180 * 24 * 3600 * 1000),
+      });
     }
 
     // Channel profile info
@@ -905,10 +933,13 @@ app.get('/api/channel', async (req: Request, res: Response) => {
       subscribers: '1.2M subscribers',
     };
 
+    const folders = buildChannelFolderHierarchy(tracks, channelProfile.name);
+
     res.json({
       success: true,
       channel: channelProfile,
       tracks,
+      folders,
     });
   } catch (err: any) {
     console.error('Channel exploration endpoint error:', err);

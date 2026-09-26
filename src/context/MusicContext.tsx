@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Track, Playlist, PlayerState, GenreType, MoodType } from '../types/music';
+import { Track, Playlist, PlayerState, GenreType, MoodType, ChannelFolder } from '../types/music';
 import { audioManager } from '../lib/audioManager';
 import { downloadManager } from '../lib/downloadManager';
 import {
@@ -16,6 +16,7 @@ import {
 } from '../lib/idb';
 import { classifyTrackHeuristic, requestAICategorization } from '../lib/classifier';
 import { ensureTrackSortMetadata } from '../lib/trackUtils';
+import { buildChannelFolderHierarchy } from '../lib/channelFolderUtils';
 
 export interface ChannelData {
   name: string;
@@ -26,6 +27,7 @@ export interface ChannelData {
   subscribers?: string;
   genres?: string[];
   tracks: Track[];
+  folders: ChannelFolder[];
   loading: boolean;
 }
 
@@ -714,7 +716,16 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.tracks) && data.tracks.length > 0) {
-          setSearchResults(data.tracks);
+          const seen = new Set<string>();
+          const deduped: Track[] = [];
+          for (const t of data.tracks) {
+            const key = (t.id || t.youtubeId || `${t.title}-${t.artist}`).toLowerCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              deduped.push(t);
+            }
+          }
+          setSearchResults(deduped);
           setIsSearching(false);
           return;
         }
@@ -732,12 +743,18 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         clientPromises.push(
           searchDeezerJSONP(q).then((items) => {
             if (!Array.isArray(items)) return [];
-            return items.map((item: any) => {
+            const seen = new Set<string>();
+            const list: Track[] = [];
+            for (const item of items) {
+              const id = `sp-${item.id}`;
+              if (seen.has(id)) continue;
+              seen.add(id);
+
               const title = item.title_short || item.title || 'Track';
               const artist = item.artist?.name || 'Artist';
               const cl = classifyTrackHeuristic(title, artist, ['spotify', 'music', q]);
-              return {
-                id: `sp-${item.id}`,
+              list.push({
+                id,
                 title,
                 artist,
                 platform: 'spotify' as const,
@@ -754,8 +771,9 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
                 isStream: false,
                 isOfflineReady: !!item.preview,
                 addedAt: Date.now(),
-              };
-            });
+              });
+            }
+            return list;
           })
         );
       }
@@ -767,10 +785,17 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
             .then((r) => r.json())
             .then((iData) => {
               if (!Array.isArray(iData?.results)) return [];
-              return iData.results.map((r: any) => {
+              const seen = new Set<string>();
+              const list: Track[] = [];
+              for (const r of iData.results) {
+                if (!r.trackId) continue;
+                const id = `itunes-${r.trackId}`;
+                if (seen.has(id)) continue;
+                seen.add(id);
+
                 const cl = classifyTrackHeuristic(r.trackName || '', r.artistName || '', [r.primaryGenreName || '']);
-                return {
-                  id: `itunes-${r.trackId}`,
+                list.push({
+                  id,
                   title: r.trackName,
                   artist: r.artistName,
                   platform: (plat === 'youtube' ? 'youtube' : 'web_audio') as 'youtube' | 'web_audio',
@@ -784,8 +809,9 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
                   energyLevel: cl.energyLevel,
                   isOfflineReady: true,
                   addedAt: Date.now(),
-                };
-              });
+                });
+              }
+              return list;
             })
             .catch(() => [])
         );
@@ -798,10 +824,18 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
             .then((r) => r.json())
             .then((pData) => {
               if (!Array.isArray(pData?.results)) return [];
-              return pData.results.map((r: any) => {
+              const seen = new Set<string>();
+              const list: Track[] = [];
+              for (const r of pData.results) {
+                const podId = r.collectionId || r.trackId;
+                if (!podId) continue;
+                const id = `pod-${podId}`;
+                if (seen.has(id)) continue;
+                seen.add(id);
+
                 const cl = classifyTrackHeuristic(r.collectionName || r.trackName || '', r.artistName || '', ['podcast']);
-                return {
-                  id: `pod-${r.collectionId}`,
+                list.push({
+                  id,
                   title: r.collectionName || r.trackName,
                   artist: r.artistName,
                   platform: 'podcast' as const,
@@ -815,8 +849,9 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
                   energyLevel: cl.energyLevel,
                   isOfflineReady: false,
                   addedAt: Date.now(),
-                };
-              });
+                });
+              }
+              return list;
             })
             .catch(() => [])
         );
@@ -825,7 +860,16 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
       const results = await Promise.all(clientPromises);
       const combined = results.flat();
       if (combined.length > 0) {
-        setSearchResults(combined);
+        const seen = new Set<string>();
+        const deduped: Track[] = [];
+        for (const t of combined) {
+          const key = (t.id || t.youtubeId || `${t.title}-${t.artist}`).toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(t);
+          }
+        }
+        setSearchResults(deduped);
         setIsSearching(false);
         return;
       }
@@ -858,6 +902,38 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
       const name = (channelOrArtistName || '').trim();
       if (!name && !channelId) return;
 
+      const deduplicateTrackList = (trackList: Track[]): Track[] => {
+        const seenIds = new Set<string>();
+        const seenYts = new Set<string>();
+        const seenTitles = new Set<string>();
+        const result: Track[] = [];
+
+        for (const t of trackList) {
+          if (!t) continue;
+          const idKey = (t.id || '').toLowerCase();
+          const ytKey = (t.youtubeId || '').toLowerCase();
+          const titleKey = `${(t.title || '').trim().toLowerCase()}:::${(t.artist || '').trim().toLowerCase()}`;
+
+          if ((idKey && seenIds.has(idKey)) || (ytKey && seenYts.has(ytKey)) || (titleKey && seenTitles.has(titleKey))) {
+            // Already present, enhance existing track if new one has audioUrl/youtubeId
+            if (idKey) {
+              const existing = result.find((x) => (x.id || '').toLowerCase() === idKey);
+              if (existing) {
+                if (!existing.audioUrl && t.audioUrl) existing.audioUrl = t.audioUrl;
+                if (!existing.youtubeId && t.youtubeId) existing.youtubeId = t.youtubeId;
+              }
+            }
+            continue;
+          }
+
+          if (idKey) seenIds.add(idKey);
+          if (ytKey) seenYts.add(ytKey);
+          if (titleKey) seenTitles.add(titleKey);
+          result.push(ensureTrackSortMetadata(t));
+        }
+        return result;
+      };
+
       const baseList: Track[] = [];
       if (initialTrack) {
         baseList.push(initialTrack);
@@ -868,10 +944,7 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         (t.channelTitle || t.artist).toLowerCase().includes(name.toLowerCase())
       );
       for (const t of libMatches) {
-        const k = (t.youtubeId || t.id).toLowerCase();
-        if (!baseList.some((b) => (b.youtubeId || b.id).toLowerCase() === k)) {
-          baseList.push(t);
-        }
+        baseList.push(t);
       }
 
       // Collect matching tracks from active search results
@@ -879,13 +952,10 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         (t.channelTitle || t.artist).toLowerCase().includes(name.toLowerCase())
       );
       for (const t of searchMatches) {
-        const k = (t.youtubeId || t.id).toLowerCase();
-        if (!baseList.some((b) => (b.youtubeId || b.id).toLowerCase() === k)) {
-          baseList.push(t);
-        }
+        baseList.push(t);
       }
 
-      const initialTracks = baseList.map(ensureTrackSortMetadata);
+      const initialTracks = deduplicateTrackList(baseList);
 
       // Transition view immediately so user sees responsiveness
       setActiveView('channel');
@@ -898,6 +968,7 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         subscribers: '1.2M subscribers',
         genres: Array.from(new Set(initialTracks.map((t) => t.genre).filter(Boolean))),
         tracks: initialTracks,
+        folders: buildChannelFolderHierarchy(initialTracks, name),
         loading: true,
       });
 
@@ -908,23 +979,15 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
         if (res.ok) {
           const data = await res.json();
           if (data.channel && Array.isArray(data.tracks) && data.tracks.length > 0) {
-            const seen = new Set<string>();
-            const mergedTracks: Track[] = [];
+            const rawCombined = initialTrack
+              ? [initialTrack, ...initialTracks, ...data.tracks]
+              : [...initialTracks, ...data.tracks];
+            const mergedTracks = deduplicateTrackList(rawCombined);
 
-            // Add initialTrack first if present so clicked track remains visible at top or in catalog
-            if (initialTrack) {
-              const k = (initialTrack.youtubeId || initialTrack.id).toLowerCase();
-              seen.add(k);
-              mergedTracks.push(ensureTrackSortMetadata(initialTrack));
-            }
-
-            for (const t of [...initialTracks, ...data.tracks]) {
-              const key = (t.youtubeId || t.id).toLowerCase();
-              if (!seen.has(key)) {
-                seen.add(key);
-                mergedTracks.push(ensureTrackSortMetadata(t));
-              }
-            }
+            const channelFolders =
+              Array.isArray(data.folders) && data.folders.length > 0
+                ? data.folders
+                : buildChannelFolderHierarchy(mergedTracks, data.channel.name || name);
 
             setActiveChannel({
               name: data.channel.name || name,
@@ -944,6 +1007,7 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
               subscribers: data.channel.subscribers || '1.2M subscribers',
               genres: Array.from(new Set(mergedTracks.map((t) => t.genre).filter(Boolean))),
               tracks: mergedTracks,
+              folders: channelFolders,
               loading: false,
             });
             return;
@@ -964,20 +1028,8 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
           }
         }
 
-        const seen = new Set<string>();
-        const merged: Track[] = [];
-        if (initialTrack) {
-          seen.add((initialTrack.youtubeId || initialTrack.id).toLowerCase());
-          merged.push(ensureTrackSortMetadata(initialTrack));
-        }
-
-        for (const t of fallbackTracks) {
-          const k = (t.youtubeId || t.id).toLowerCase();
-          if (!seen.has(k)) {
-            seen.add(k);
-            merged.push(ensureTrackSortMetadata(t));
-          }
-        }
+        const rawFallback = initialTrack ? [initialTrack, ...fallbackTracks] : fallbackTracks;
+        const merged = deduplicateTrackList(rawFallback);
 
         setActiveChannel({
           name,
@@ -991,6 +1043,7 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
           subscribers: '1.2M subscribers',
           genres: Array.from(new Set(merged.map((t) => t.genre).filter(Boolean))),
           tracks: merged,
+          folders: buildChannelFolderHierarchy(merged, name),
           loading: false,
         });
       } catch {
