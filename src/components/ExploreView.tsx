@@ -25,6 +25,7 @@ import { Track } from '../types/music';
 import { SortBar } from './SortBar';
 import { SortField, SortDirection, sortTracks, formatViews } from '../lib/trackUtils';
 import { IdentificationBadge } from './IdentificationBadge';
+import { isMediaUrl } from '../lib/linkResolver';
 
 export const ExploreView: React.FC = () => {
   const {
@@ -111,7 +112,8 @@ export const ExploreView: React.FC = () => {
   let activeDisplayTracks: Track[] = [];
   if (isSearchActive) {
     const q = searchQuery.toLowerCase().trim();
-    const localMatches = q
+    const isDirectUrl = isMediaUrl(searchQuery);
+    const localMatches = q && !isDirectUrl
       ? tracks.filter(
           (t) =>
             t.title.toLowerCase().includes(q) ||
@@ -131,8 +133,19 @@ export const ExploreView: React.FC = () => {
     });
 
     let filtered = isOfflineModeOnly ? merged.filter((t) => t.isOfflineReady) : merged;
-    if (searchPlatformFilter !== 'all') {
-      const platFiltered = filtered.filter((t) => t.platform === searchPlatformFilter);
+    // If user searched a direct media link, ALWAYS display the resolved track without platform filtering hiding it!
+    if (searchPlatformFilter !== 'all' && !isDirectUrl) {
+      const platFiltered = filtered.filter((t) => {
+        if (searchPlatformFilter === 'podcast') {
+          return (
+            t.platform === 'podcast' ||
+            t.genre.toLowerCase().includes('podcast') ||
+            t.tags?.includes('podcast') ||
+            t.tags?.includes('episode')
+          );
+        }
+        return t.platform === searchPlatformFilter;
+      });
       filtered = platFiltered.length > 0 ? platFiltered : filtered;
     }
     activeDisplayTracks = sortTracks(filtered, sortField, sortDirection);
@@ -376,11 +389,41 @@ export const ExploreView: React.FC = () => {
 
         {/* Big Search Input with Platform Tabs */}
         <div className="space-y-3">
+          {/* Direct Link Banner */}
+          {isMediaUrl(searchQuery) && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/70 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 shadow-lg">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span className="font-semibold text-white">
+                  {searchQuery.includes('episode')
+                    ? 'Spotify Podcast Episode link detected!'
+                    : searchQuery.includes('show')
+                    ? 'Spotify Show link detected!'
+                    : searchQuery.includes('track')
+                    ? 'Spotify Track link detected!'
+                    : searchQuery.includes('spotify')
+                    ? 'Spotify Media link detected!'
+                    : 'Direct Media link detected!'}
+                </span>
+                <span className="text-slate-400 hidden md:inline">Click to resolve metadata & open</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => searchPlatforms(searchQuery, 'all')}
+                disabled={isSearching}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 whitespace-nowrap self-start sm:self-auto"
+              >
+                {isSearching ? <Sparkles className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                <span>{isSearching ? 'Resolving...' : 'Open & Play Link'}</span>
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
               if (searchQuery.trim()) {
-                searchPlatforms(searchQuery, searchPlatformFilter);
+                searchPlatforms(searchQuery, isMediaUrl(searchQuery) ? 'all' : searchPlatformFilter);
               }
             }}
             className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
@@ -391,7 +434,7 @@ export const ExploreView: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search any song, artist, album on YouTube or Spotify..."
+                placeholder="Search any song, artist, album, or paste Spotify / YouTube link..."
                 className="w-full bg-slate-950/90 border border-slate-700/90 text-sm text-white pl-10 pr-10 py-3 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 placeholder:text-slate-500 shadow-inner"
               />
               {searchQuery && (
@@ -587,12 +630,24 @@ export const ExploreView: React.FC = () => {
               ))}
             </div>
           ) : activeDisplayTracks.length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
+            <div className="text-center py-16 border border-dashed border-slate-800 rounded-xl bg-slate-900/30 p-6">
               <Search className="w-8 h-8 text-slate-600 mx-auto mb-2" />
               <p className="text-sm text-slate-300 font-medium">No results found for "{searchQuery}"</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Try searching for specific artists, genres (e.g. "Coldplay", "Taylor Swift", "lofi"), or paste a direct YouTube / Spotify URL above.
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                {isMediaUrl(searchQuery)
+                  ? 'This link was detected as a media URL. Click below to resolve metadata and start playback.'
+                  : 'Try searching for specific artists, genres (e.g. "Coldplay", "Taylor Swift", "lofi"), or paste a direct YouTube / Spotify URL above.'}
               </p>
+              {isMediaUrl(searchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => searchPlatforms(searchQuery, 'all')}
+                  className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-lg shadow-emerald-600/30"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Resolve & Open Direct Link</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">

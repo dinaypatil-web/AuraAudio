@@ -17,6 +17,7 @@ import {
 import { classifyTrackHeuristic, requestAICategorization } from '../lib/classifier';
 import { ensureTrackSortMetadata } from '../lib/trackUtils';
 import { buildChannelFolderHierarchy } from '../lib/channelFolderUtils';
+import { isMediaUrl, resolveMediaUrl } from '../lib/linkResolver';
 
 export interface ChannelData {
   name: string;
@@ -125,6 +126,10 @@ const MusicContext = createContext<MusicContextType | null>(null);
 
 // Helper to resolve YouTube, Spotify, or audio links client-side (for offline, static Vercel, or when /api is unreachable)
 async function resolveMediaLinkClient(url: string): Promise<Track> {
+  return resolveMediaUrl(url);
+}
+
+async function _legacyResolve(url: string): Promise<Track> {
   const trimmed = url.trim();
 
   // 1. Direct audio file
@@ -710,10 +715,26 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
     setIsSearching(true);
     const plat = platform || searchPlatformFilter;
 
+    // 0. Direct link detection (Spotify track/episode/show/album/playlist, YouTube videos, Web streams)
+    if (isMediaUrl(q)) {
+      try {
+        const resolved = await resolveMediaUrl(q);
+        if (resolved) {
+          await idbSaveTrack(resolved);
+          setTracks((prev) => [resolved, ...prev.filter((t) => t.id !== resolved.id)]);
+          setSearchResults([resolved]);
+          setIsSearching(false);
+          return;
+        }
+      } catch (directErr) {
+        console.warn('Direct media URL resolution error, falling back to search APIs:', directErr);
+      }
+    }
+
     // 1. Try backend multi-platform search endpoint (supports Vercel serverless /api/search and local Express)
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`, {
-        signal: AbortSignal.timeout(3500),
+        signal: AbortSignal.timeout(4000),
       });
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
@@ -739,6 +760,19 @@ function searchDeezerJSONP(query: string): Promise<any[]> {
 
     // 2. Client-side fallback search (essential on static Vercel hosting, offline, or when backend is cold-starting)
     try {
+      if (isMediaUrl(q)) {
+        try {
+          const resolved = await resolveMediaUrl(q);
+          if (resolved) {
+            await idbSaveTrack(resolved);
+            setTracks((prev) => [resolved, ...prev.filter((t) => t.id !== resolved.id)]);
+            setSearchResults([resolved]);
+            setIsSearching(false);
+            return;
+          }
+        } catch {}
+      }
+
       const clientPromises: Promise<Track[]>[] = [];
 
       // A. Spotify Platform Search (Dual Engine: iTunes Music Catalog with Spotify metadata + Deezer JSONP)

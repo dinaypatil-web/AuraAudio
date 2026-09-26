@@ -718,6 +718,123 @@ app.get('/api/search', async (req: Request, res: Response) => {
       return res.json({ success: true, count: 0, tracks: [] });
     }
 
+    // Direct link resolution (Spotify, YouTube, or direct audio link)
+    const isDirectLink =
+      q.includes('spotify.com/') ||
+      q.startsWith('spotify:') ||
+      q.includes('youtube.com/') ||
+      q.includes('youtu.be/') ||
+      /\.(mp3|wav|m4a|aac|ogg)(\?.*)?$/i.test(q);
+
+    if (isDirectLink) {
+      const spotifyMatch = q.match(
+        /(?:spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album|episode|show|artist)\/([a-zA-Z0-9]+)|spotify:(track|playlist|album|episode|show|artist):([a-zA-Z0-9]+))/i
+      );
+      if (spotifyMatch) {
+        const spType = (spotifyMatch[1] || spotifyMatch[3]).toLowerCase();
+        const spotifyId = spotifyMatch[2] || spotifyMatch[4];
+        const isPodcast = spType === 'episode' || spType === 'show';
+
+        let title = isPodcast ? 'Spotify Episode' : 'Spotify Track';
+        let author = isPodcast ? 'Spotify Podcast' : 'Spotify Artist';
+        let coverUrl =
+          'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80';
+        let iframeUrl = `https://open.spotify.com/embed/${spType}/${spotifyId}`;
+
+        try {
+          const spRes = await fetch(
+            `https://open.spotify.com/oembed?url=${encodeURIComponent(q)}`,
+            { signal: AbortSignal.timeout(3500) }
+          );
+          if (spRes.ok) {
+            const spData = await spRes.json();
+            if (spData.title) title = spData.title;
+            if (spData.thumbnail_url) coverUrl = spData.thumbnail_url;
+            if (spData.iframe_url) iframeUrl = spData.iframe_url;
+            if (spData.author_name) author = spData.author_name;
+
+            if (title.includes(' - ')) {
+              const parts = title.split(' - ');
+              title = parts[0].trim();
+              author = parts.slice(1).join(' - ').trim();
+            } else if (title.includes(' | ')) {
+              const parts = title.split(' | ');
+              title = parts[0].trim();
+              author = parts.slice(1).join(' | ').trim();
+            }
+          }
+        } catch {}
+
+        return res.json({
+          success: true,
+          query: q,
+          count: 1,
+          tracks: [
+            {
+              id: `spotify-${spType}-${spotifyId}`,
+              title,
+              artist: author,
+              platform: 'spotify',
+              sourceUrl: q,
+              spotifyId,
+              spotifyEmbedUrl: iframeUrl,
+              duration: isPodcast ? 1800 : 210,
+              coverUrl,
+              genre: isPodcast ? 'Podcast & Talk' : 'Pop',
+              mood: isPodcast ? 'Focus & Study' : 'Chill & Relax',
+              tags: isPodcast ? ['spotify', 'podcast', 'episode'] : ['spotify', 'music'],
+              energyLevel: 5,
+              isStream: false,
+              addedAt: Date.now(),
+            },
+          ],
+        });
+      }
+
+      const ytMatch = q.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/);
+      if (ytMatch && ytMatch[1]) {
+        const vid = ytMatch[1];
+        let title = 'YouTube Audio';
+        let author = 'YouTube Creator';
+        let coverUrl = `https://img.youtube.com/vi/${vid}/hqdefault.jpg`;
+        try {
+          const oRes = await fetch(
+            `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${vid}&format=json`,
+            { signal: AbortSignal.timeout(3000) }
+          );
+          if (oRes.ok) {
+            const oData = await oRes.json();
+            if (oData.title) title = oData.title;
+            if (oData.author_name) author = oData.author_name;
+            if (oData.thumbnail_url) coverUrl = oData.thumbnail_url;
+          }
+        } catch {}
+
+        return res.json({
+          success: true,
+          query: q,
+          count: 1,
+          tracks: [
+            {
+              id: `yt-${vid}`,
+              title,
+              artist: author,
+              platform: 'youtube',
+              sourceUrl: `https://www.youtube.com/watch?v=${vid}`,
+              youtubeId: vid,
+              duration: 240,
+              coverUrl,
+              genre: 'Lo-Fi',
+              mood: 'Chill & Relax',
+              tags: ['youtube', 'video'],
+              energyLevel: 5,
+              addedAt: Date.now(),
+            },
+          ],
+        });
+      }
+    }
+
     // Parallel multi-platform search promises
     const promises: Promise<any[]>[] = [];
 
@@ -1018,19 +1135,20 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
       return res.json({ success: true, track });
     }
 
-    // Check if Spotify link (track, playlist, album)
+    // Check if Spotify link (track, playlist, album, episode, show, artist)
     const spotifyMatch = trimmedUrl.match(
-      /(?:spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album)\/([a-zA-Z0-9]+)|spotify:(track|playlist|album):([a-zA-Z0-9]+))/i
+      /(?:spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album|episode|show|artist)\/([a-zA-Z0-9]+)|spotify:(track|playlist|album|episode|show|artist):([a-zA-Z0-9]+))/i
     );
     if (spotifyMatch) {
-      const spType = spotifyMatch[1] || spotifyMatch[3];
+      const spType = (spotifyMatch[1] || spotifyMatch[3]).toLowerCase();
       const spotifyId = spotifyMatch[2] || spotifyMatch[4];
+      const isPodcast = spType === 'episode' || spType === 'show';
 
-      let title = 'Spotify Track';
-      let author = 'Spotify Artist';
+      let title = isPodcast ? 'Spotify Episode' : 'Spotify Track';
+      let author = isPodcast ? 'Spotify Podcast' : 'Spotify Artist';
       let coverUrl =
         'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop&q=80';
-      const iframeUrl = `https://open.spotify.com/embed/${spType}/${spotifyId}`;
+      let iframeUrl = `https://open.spotify.com/embed/${spType}/${spotifyId}`;
 
       try {
         const spRes = await fetch(
@@ -1038,12 +1156,19 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
         );
         if (spRes.ok) {
           const spData = await spRes.json();
-          title = spData.title || title;
+          if (spData.title) title = spData.title;
           if (spData.thumbnail_url) coverUrl = spData.thumbnail_url;
+          if (spData.iframe_url) iframeUrl = spData.iframe_url;
+          if (spData.author_name) author = spData.author_name;
+
           if (title.includes(' - ')) {
             const parts = title.split(' - ');
             title = parts[0].trim();
             author = parts.slice(1).join(' - ').trim();
+          } else if (title.includes(' | ')) {
+            const parts = title.split(' | ');
+            title = parts[0].trim();
+            author = parts.slice(1).join(' | ').trim();
           }
         }
       } catch (spErr) {
@@ -1053,16 +1178,24 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
       // Match with YouTube audio for background playback & offline caching!
       let matchedYoutubeId = '';
       try {
-        const ytMatches = await searchYouTubeLive(`${title} ${author} audio`, 3);
+        const cleanQuery = `${title} ${author}`
+          .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+          .replace(/[()]/g, ' ')
+          .trim();
+        const ytMatches = await searchYouTubeLive(`${cleanQuery.slice(0, 60)} audio`, 3);
         if (ytMatches.length > 0) {
           matchedYoutubeId = ytMatches[0].youtubeId;
         }
       } catch {}
 
-      const classification = serverClassifyTrack(title, author, ['spotify', 'music']);
+      const classification = serverClassifyTrack(
+        title,
+        author,
+        isPodcast ? ['podcast', 'talk', 'episode'] : ['spotify', 'music']
+      );
 
       const track = {
-        id: `spotify-${spotifyId}`,
+        id: `spotify-${spType}-${spotifyId}`,
         title,
         artist: author,
         platform: 'spotify',
@@ -1070,11 +1203,11 @@ app.post('/api/youtube/resolve', async (req: Request, res: Response) => {
         spotifyId,
         spotifyEmbedUrl: iframeUrl,
         youtubeId: matchedYoutubeId || undefined,
-        duration: 210,
+        duration: isPodcast ? 1800 : 210,
         coverUrl,
-        genre: classification.genre,
-        mood: classification.mood,
-        tags: ['spotify', 'music', 'streaming'],
+        genre: isPodcast ? 'Podcast & Talk' : classification.genre,
+        mood: isPodcast ? 'Focus & Study' : classification.mood,
+        tags: isPodcast ? ['spotify', 'podcast', 'episode'] : ['spotify', 'music', 'streaming'],
         energyLevel: classification.energyLevel,
         isStream: false,
         addedAt: Date.now(),
